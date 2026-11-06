@@ -1,0 +1,17 @@
+{
+  "name": "nexus-marine",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Nexus Marine — Enterprise Yacht Operations Platform (API + Web Dashboard/Customer Portal + Mobile)",
+  "workspaces": ["packages/*", "apps/api", "apps/web"],
+  "scripts": {
+    "dev:api": "npm run dev -w @nexus/api",
+    "dev:web": "npm run dev -w @nexus/web",
+    "dev": "npm run dev:api & npm run dev:web",
+    "build": "npm run build -w @nexus/api && npm run build -w @nexus/web",
+    "db:migrate": "npm run db:migrate -w @nexus/api",
+    "db:seed": "npm run db:seed -w @nexus/api",
+    "test": "npm test -w @nexus/api",
+    "typecheck": "npm run typecheck -w @nexus/api && npm run typecheck -w @nexus/web"
+  }
+}

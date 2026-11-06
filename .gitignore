@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.expo/
+.env
+*.log
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+apps/api/storage/*
+!apps/api/storage/.gitkeep
+.DS_Store
+coverage/
+storage-test/

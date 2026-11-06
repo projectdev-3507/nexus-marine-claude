@@ -1,0 +1,716 @@
+// Nexus Marine — merkezi PostgreSQL veri modeli
+// Web dashboard, müşteri portalı ve mobil uygulama bu tek veritabanını ortak API üzerinden kullanır.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  OPERATIONS_MANAGER
+  TECHNICIAN
+  CAPTAIN
+  OWNER
+}
+
+enum VesselRelation {
+  OWNER
+  CAPTAIN
+  CREW
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum WorkOrderStatus {
+  REQUESTED
+  EVALUATION
+  PLANNED
+  ASSIGNED
+  IN_PROGRESS
+  TECHNICAL_REVIEW
+  COMPLETED
+  PUBLISHED
+  CLOSED
+  ON_HOLD
+  REVISION_REQUIRED
+  CANCELLED
+}
+
+enum MaintenanceStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+enum MaintenanceCategory {
+  MECHANICAL
+  ELECTRICAL
+  HAUL_OUT
+  COSMETIC
+}
+
+enum InspectionStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+}
+
+enum InspectionResult {
+  OK
+  ATTENTION
+  FAULT
+  NA
+}
+
+enum FaultStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum ReportType {
+  INSPECTION
+  POST_SCRAPING
+  HULL_RESTORATION
+  TEAK_CARPENTRY
+  DELIVERY_PROTOCOL
+}
+
+enum ReportStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  DELIVERED
+  CANCELLED
+}
+
+enum PhaseStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+}
+
+enum ChangeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum CustomerStatus {
+  ACTIVE
+  PENDING
+  INACTIVE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  title        String?
+  roles        Role[]
+  isActive     Boolean  @default(true)
+  avatarUrl    String?
+  /// Tekne sahibi kullanıcının bağlı olduğu müşteri kaydı
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  vesselLinks        VesselMember[]
+  assignedWorkOrders WorkOrder[]          @relation("WOTechnician")
+  requestedWorkOrders WorkOrder[]         @relation("WORequester")
+  history            WorkOrderHistory[]
+  comments           WorkOrderComment[]
+  notifications      Notification[]
+  pushTokens         PushToken[]
+  inspections        Inspection[]         @relation("Inspector")
+  maintenancePlans   MaintenancePlan[]
+  managedProjects    Project[]
+  phases             ProjectPhase[]
+  customerNotes      CustomerNote[]
+  auditLogs          AuditLog[]
+
+  @@index([customerId])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+}
+
+model Customer {
+  id        String         @id @default(cuid())
+  name      String
+  company   String?
+  email     String?
+  phone     String?
+  address   String?
+  taxNumber String?
+  status    CustomerStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  users     User[]
+  vessels   Vessel[]
+  quotes    Quote[]
+  payments  Payment[]
+  notes     CustomerNote[]
+  documents Document[]
+}
+
+model CustomerNote {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  body       String
+  createdAt  DateTime @default(now())
+}
+
+model Vessel {
+  id            String   @id @default(cuid())
+  name          String
+  type          String?
+  make          String?
+  model         String?
+  year          Int?
+  lengthM       Float?
+  flag          String?
+  marina        String?
+  berth         String?
+  ownerId       String?
+  owner         Customer? @relation(fields: [ownerId], references: [id])
+  contactPhone  String?
+  contactEmail  String?
+  generatorInfo Json?
+  batteryInfo   Json?
+  equipment     Json?
+  coverPhotoId  String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  members          VesselMember[]
+  engines          Engine[]
+  maintenancePlans MaintenancePlan[]
+  workOrders       WorkOrder[]
+  inspections      Inspection[]
+  faults           Fault[]
+  reports          Report[]
+  projects         Project[]
+  quotes           Quote[]
+  documents        Document[]
+  attachments      Attachment[]
+
+  @@index([ownerId])
+}
+
+/// Kullanıcı ↔ tekne ilişkisi (kaptan, ek sahip, mürettebat). Birden fazla ilişki atanabilir.
+model VesselMember {
+  id       String         @id @default(cuid())
+  userId   String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vesselId String
+  vessel   Vessel         @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  relation VesselRelation
+
+  @@unique([userId, vesselId, relation])
+}
+
+model Engine {
+  id           String   @id @default(cuid())
+  vesselId     String
+  vessel       Vessel   @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  position     String // İskele / Sancak / Jeneratör
+  make         String?
+  model        String?
+  serialNumber String?
+  hours        Float    @default(0)
+  hoursUpdatedAt DateTime?
+  maintenancePlans MaintenancePlan[]
+}
+
+model MaintenancePlan {
+  id             String              @id @default(cuid())
+  title          String
+  category       MaintenanceCategory
+  subType        String?
+  vesselId       String
+  vessel         Vessel              @relation(fields: [vesselId], references: [id], onDelete: Cascade)
+  description    String?
+  plannedDate    DateTime
+  startDate      DateTime?
+  endDate        DateTime?
+  technicianId   String?
+  technician     User?               @relation(fields: [technicianId], references: [id])
+  priority       Priority            @default(MEDIUM)
+  plannedMaterials Json?
+  estimatedHours Float?
+  actualHours    Float?
+  status         MaintenanceStatus   @default(PLANNED)
+  technicalNotes String?
+  /// Tarih bazlı tekrar (gün)
+  intervalDays   Int?
+  /// Motor saati bazlı tekrar
+  engineId       String?
+  engine         Engine?             @relation(fields: [engineId], references: [id])
+  intervalEngineHours Float?
+  dueEngineHours Float?
+  /// Kara bakımı alanları
+  haulOutDate    DateTime?
+  launchDate     DateTime?
+  workOrderId    String?             @unique
+  workOrder      WorkOrder?          @relation(fields: [workOrderId], references: [id])
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([vesselId, plannedDate])
+  @@index([status])
+}
+
+model WorkOrder {
+  id            String          @id @default(cuid())
+  number        String          @unique
+  vesselId      String
+  vessel        Vessel          @relation(fields: [vesselId], references: [id])
+  requestedById String?
+  requestedBy   User?           @relation("WORequester", fields: [requestedById], references: [id])
+  title         String
+  description   String?
+  category      MaintenanceCategory?
+  priority      Priority        @default(MEDIUM)
+  status        WorkOrderStatus @default(REQUESTED)
+  technicianId  String?
+  technician    User?           @relation("WOTechnician", fields: [technicianId], references: [id])
+  plannedStart  DateTime?
+  plannedEnd    DateTime?
+  plannedHours  Float?
+  actualHours   Float?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  checklist     Json?
+  /// Müşteriye yayınlanacak özet (operasyon yöneticisi onayından sonra görünür)
+  customerSummary String?
+  publishedAt   DateTime?
+  projectId     String?
+  project       Project?        @relation(fields: [projectId], references: [id])
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  history         WorkOrderHistory[]
+  comments        WorkOrderComment[]
+  materials       MaterialUsage[]
+  maintenancePlan MaintenancePlan?
+  faults          Fault[]
+  reports         Report[]
+
+  @@index([vesselId])
+  @@index([status])
+  @@index([technicianId])
+}
+
+model WorkOrderHistory {
+  id          String           @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder        @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?            @relation(fields: [userId], references: [id])
+  fromStatus  WorkOrderStatus?
+  toStatus    WorkOrderStatus
+  note        String?
+  createdAt   DateTime         @default(now())
+
+  @@index([workOrderId])
+}
+
+model WorkOrderComment {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  body        String
+  /// true: yalnızca personel görür
+  internal    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+}
+
+/// Genel dosya/fotoğraf kaydı. entityType: WORK_ORDER, INSPECTION_ITEM, VESSEL, PROJECT, PHASE, REPORT, DOCUMENT, FAULT
+model Attachment {
+  id              String   @id @default(cuid())
+  entityType      String
+  entityId        String
+  vesselId        String?
+  vessel          Vessel?  @relation(fields: [vesselId], references: [id])
+  fileName        String
+  mimeType        String
+  size            Int
+  storageKey      String
+  caption         String?
+  /// BEFORE / AFTER / GENERAL
+  tag             String?
+  customerVisible Boolean  @default(false)
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([vesselId])
+}
+
+model Inspection {
+  id              String           @id @default(cuid())
+  number          String           @unique
+  vesselId        String
+  vessel          Vessel           @relation(fields: [vesselId], references: [id])
+  inspectorId     String
+  inspector       User             @relation("Inspector", fields: [inspectorId], references: [id])
+  captainName     String?
+  date            DateTime         @default(now())
+  status          InspectionStatus @default(DRAFT)
+  templateVersion String
+  generalNotes    String?
+  submittedAt     DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  items  InspectionItem[]
+  report Report?
+
+  @@index([vesselId, date])
+}
+
+model InspectionItem {
+  id           String            @id @default(cuid())
+  inspectionId String
+  inspection   Inspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  sectionCode  String
+  itemCode     String
+  label        String
+  unit         String?
+  result       InspectionResult?
+  note         String?
+  measurement  String?
+  fault        Fault?
+
+  @@unique([inspectionId, itemCode])
+}
+
+model Fault {
+  id               String      @id @default(cuid())
+  vesselId         String
+  vessel           Vessel      @relation(fields: [vesselId], references: [id])
+  title            String
+  description      String?
+  severity         Priority    @default(HIGH)
+  status           FaultStatus @default(OPEN)
+  source           String      @default("MANUAL")
+  inspectionItemId String?     @unique
+  inspectionItem   InspectionItem? @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  workOrderId      String?
+  workOrder        WorkOrder?  @relation(fields: [workOrderId], references: [id])
+  reportedById     String?
+  createdAt        DateTime    @default(now())
+  resolvedAt       DateTime?
+
+  @@index([vesselId, status])
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  number          String       @unique
+  type            ReportType
+  title           String
+  vesselId        String
+  vessel          Vessel       @relation(fields: [vesselId], references: [id])
+  workOrderId     String?
+  workOrder       WorkOrder?   @relation(fields: [workOrderId], references: [id])
+  projectId       String?
+  project         Project?     @relation(fields: [projectId], references: [id])
+  inspectionId    String?      @unique
+  inspection      Inspection?  @relation(fields: [inspectionId], references: [id])
+  status          ReportStatus @default(DRAFT)
+  currentVersion  Int          @default(1)
+  customerVisible Boolean      @default(false)
+  createdById     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  versions ReportVersion[]
+
+  @@index([vesselId])
+}
+
+/// Rapor sürümleri. Onaylı bir rapor düzenlendiğinde yeni sürüm oluşturulur.
+model ReportVersion {
+  id           String       @id @default(cuid())
+  reportId     String
+  report       Report       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  version      Int
+  status       ReportStatus @default(DRAFT)
+  data         Json
+  /// Yetkili kullanıcı onayıyla eklenen hukuki/teknik beyanlar
+  clauses      Json?
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  pdfKey       String?
+  changeNote   String?
+  createdAt    DateTime     @default(now())
+
+  @@unique([reportId, version])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  vesselId    String
+  vessel      Vessel        @relation(fields: [vesselId], references: [id])
+  managerId   String?
+  manager     User?         @relation(fields: [managerId], references: [id])
+  description String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      ProjectStatus @default(PLANNING)
+  budget      Float?
+  currency    String        @default("EUR")
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  phases         ProjectPhase[]
+  changeRequests ChangeRequest[]
+  workOrders     WorkOrder[]
+  reports        Report[]
+  materials      MaterialUsage[]
+  payments       Payment[]
+  installments   PaymentInstallment[]
+}
+
+model ProjectPhase {
+  id            String      @id @default(cuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  order         Int
+  responsibleId String?
+  responsible   User?       @relation(fields: [responsibleId], references: [id])
+  startDate     DateTime?
+  endDate       DateTime?
+  status        PhaseStatus @default(NOT_STARTED)
+  materials     String?
+  notes         String?
+  tasks         ProjectTask[]
+}
+
+model ProjectTask {
+  id      String       @id @default(cuid())
+  phaseId String
+  phase   ProjectPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  title   String
+  done    Boolean      @default(false)
+  weight  Float        @default(1)
+  doneAt  DateTime?
+}
+
+/// Kaptandan / müşteriden gelen ek iş talepleri
+model ChangeRequest {
+  id          String              @id @default(cuid())
+  projectId   String
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requestedBy String?
+  title       String
+  description String?
+  extraDays   Int                 @default(0)
+  extraCost   Float               @default(0)
+  status      ChangeRequestStatus @default(PENDING)
+  decidedAt   DateTime?
+  createdAt   DateTime            @default(now())
+}
+
+model Material {
+  id        String   @id @default(cuid())
+  name      String
+  sku       String?  @unique
+  category  String
+  unit      String
+  stock     Float    @default(0)
+  minStock  Float    @default(0)
+  unitCost  Float    @default(0)
+  currency  String   @default("EUR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  usages MaterialUsage[]
+}
+
+model MaterialUsage {
+  id          String     @id @default(cuid())
+  materialId  String
+  material    Material   @relation(fields: [materialId], references: [id])
+  workOrderId String?
+  workOrder   WorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?   @relation(fields: [projectId], references: [id])
+  quantity    Float
+  unitCost    Float
+  userId      String?
+  usedAt      DateTime   @default(now())
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  number       String      @unique
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id])
+  vesselId     String?
+  vessel       Vessel?     @relation(fields: [vesselId], references: [id])
+  title        String
+  status       QuoteStatus @default(DRAFT)
+  currency     String      @default("EUR")
+  vatRate      Float       @default(20)
+  validUntil   DateTime?
+  sentAt       DateTime?
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+  responseNote String?
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  items    QuoteItem[]
+  payments Payment[]
+}
+
+model QuoteItem {
+  id          String @id @default(cuid())
+  quoteId     String
+  quote       Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  unit        String @default("adet")
+  unitPrice   Float
+  order       Int    @default(0)
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  projectId  String?
+  project    Project? @relation(fields: [projectId], references: [id])
+  quoteId    String?
+  quote      Quote?   @relation(fields: [quoteId], references: [id])
+  amount     Float
+  currency   String   @default("EUR")
+  date       DateTime @default(now())
+  method     String?
+  note       String?
+  createdAt  DateTime @default(now())
+}
+
+model PaymentInstallment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dueDate   DateTime
+  amount    Float
+  paid      Boolean  @default(false)
+  note      String?
+}
+
+model Document {
+  id              String    @id @default(cuid())
+  title           String
+  category        String // CONTRACT, CERTIFICATE, INSURANCE, TECHNICAL, WARRANTY, OTHER
+  vesselId        String?
+  vessel          Vessel?   @relation(fields: [vesselId], references: [id])
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  attachmentId    String?
+  customerVisible Boolean   @default(false)
+  expiryDate      DateTime?
+  notes           String?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  link       String?
+  /// Aynı olayın tekrar bildirim üretmesini engeller
+  dedupeKey  String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  entityType String
+  entityId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
