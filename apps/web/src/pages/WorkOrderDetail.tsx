@@ -1,0 +1,272 @@
+import { useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { Play, Square, CheckCircle2, Send, UserPlus, Pencil, Lock, MessageSquare, Plus, Trash2, Clock, RotateCcw, PauseCircle, XCircle } from 'lucide-react';
+import { WORK_ORDER_STATUS_LABELS, WORK_ORDER_TRANSITIONS, TECHNICIAN_TRANSITIONS, type WorkOrderStatus } from '@nexus/shared';
+import { useApi, useAction } from '../lib/hooks';
+import { useAuth } from '../lib/auth';
+import { api } from '../lib/api';
+import { Avatar, Badge, Card, Empty, Field, KV, Loading, Modal, PageHeader, StatusBadge, Progress } from '../components/ui';
+import { Gallery, Uploader } from '../components/media';
+import { WorkOrderForm } from './WorkOrders';
+import { useMaterialOptions, usePeople } from '../lib/lookups';
+import { fmtDateTime, fmtMoney, fmtNum, relTime, toInputDateTime } from '../lib/format';
+import { CATEGORY_LABELS, PRIORITY_LABELS, PRIORITY_TONE, WO_TONE, FAULT_STATUS_LABELS, FAULT_TONE } from '../lib/labels';
+
+const FLOW: WorkOrderStatus[] = ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED'];
+
+const ACTION_META: Partial<Record<WorkOrderStatus, { label: string; icon: any; cls: string }>> = {
+  EVALUATION: { label: 'Değerlendirmeye al', icon: Clock, cls: 'btn' },
+  PLANNED: { label: 'Planlandı', icon: Clock, cls: 'btn' },
+  IN_PROGRESS: { label: 'İşe başla', icon: Play, cls: 'btn btn-primary' },
+  TECHNICAL_REVIEW: { label: 'İşi bitir · kontrole gönder', icon: Square, cls: 'btn btn-primary' },
+  COMPLETED: { label: 'Teknik kontrolü onayla', icon: CheckCircle2, cls: 'btn btn-success' },
+  REVISION_REQUIRED: { label: 'Revizyon iste', icon: RotateCcw, cls: 'btn' },
+  PUBLISHED: { label: 'Müşteriye yayınla', icon: Send, cls: 'btn btn-primary' },
+  CLOSED: { label: 'Kapat', icon: Lock, cls: 'btn' },
+  ON_HOLD: { label: 'Beklemeye al', icon: PauseCircle, cls: 'btn' },
+  CANCELLED: { label: 'İptal et', icon: XCircle, cls: 'btn btn-ghost' },
+};
+
+export default function WorkOrderDetail() {
+  const { id } = useParams();
+  const { user, manager, staff, can } = useAuth();
+  const { data: w } = useApi<any>(`/work-orders/${id}`);
+  const [edit, setEdit] = useState(false);
+  const [assign, setAssign] = useState(false);
+  const [transition, setTransition] = useState<WorkOrderStatus | null>(null);
+  const [comment, setComment] = useState('');
+  const [internal, setInternal] = useState(true);
+  const [mat, setMat] = useState({ materialId: '', quantity: '' });
+  const materials = useMaterialOptions();
+
+  const saveChecklist = useAction((checklist: any[]) => api(`/work-orders/${id}`, { method: 'PUT', body: { checklist } }));
+  const addComment = useAction(() => api(`/work-orders/${id}/comments`, { body: { body: comment, internal: staff ? internal : false } }), { success: 'Yorum eklendi', onSuccess: () => setComment('') });
+  const addMat = useAction(() => api(`/work-orders/${id}/materials`, { body: { materialId: mat.materialId, quantity: Number(mat.quantity) } }), { success: 'Malzeme eklendi, stoktan düşüldü', onSuccess: () => setMat({ materialId: '', quantity: '' }) });
+  const delMat = useAction((usageId: string) => api(`/work-orders/${id}/materials/${usageId}`, { method: 'DELETE' }), { success: 'Malzeme kaldırıldı' });
+
+  if (!w) return <Loading />;
+  const mine = w.technician?.id === user?.id;
+  const allowed = (WORK_ORDER_TRANSITIONS[w.status as WorkOrderStatus] ?? []).filter((to) => {
+    if (manager) return to !== 'ASSIGNED';
+    return mine && can('workorders.execute') && TECHNICIAN_TRANSITIONS.some(([f, t]) => f === w.status && t === to);
+  });
+  const checklist: Array<{ label: string; done: boolean }> = w.checklist ?? [];
+  const done = checklist.filter((c) => c.done).length;
+  const canEditChecklist = staff && (manager || mine) && !['COMPLETED', 'PUBLISHED', 'CLOSED', 'CANCELLED'].includes(w.status);
+  const flowIdx = FLOW.indexOf(w.status);
+  const canUpload = staff ? manager || mine : true;
+
+  return (
+    <div>
+      <PageHeader
+        crumbs={<><Link to="/work-orders">İş Emirleri</Link> / {w.number}</>}
+        title={w.title}
+        sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{w.number}</span><StatusBadge map={WO_TONE} labels={WORK_ORDER_STATUS_LABELS} value={w.status} /><StatusBadge map={PRIORITY_TONE} labels={PRIORITY_LABELS} value={w.priority} /><Link to={`/vessels/${w.vessel.id}`}>{w.vessel.name}</Link></span>}
+        actions={
+          <>
+            {manager && ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'ON_HOLD'].includes(w.status) && <button className="btn" onClick={() => setAssign(true)}><UserPlus /> {w.technician ? 'Yeniden ata' : 'Teknisyen ata'}</button>}
+            {manager && <button className="btn" onClick={() => setEdit(true)}><Pencil /> Düzenle</button>}
+            {allowed.map((to) => {
+              const m = ACTION_META[to];
+              if (!m) return null;
+              return <button key={to} className={m.cls} onClick={() => setTransition(to)}><m.icon /> {m.label}</button>;
+            })}
+          </>
+        }
+      />
+
+      {staff && (
+        <div className="card card-pad mb-2" style={{ overflowX: 'auto' }}>
+          <div className="row" style={{ gap: 0, minWidth: 720 }}>
+            {FLOW.map((s, i) => {
+              const reached = flowIdx >= i || (flowIdx === -1 && i < 5);
+              return (
+                <div key={s} className="row" style={{ flex: 1, gap: 0 }}>
+                  <div style={{ textAlign: 'center', flex: 'none', width: 86 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', margin: '0 auto', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, background: w.status === s ? 'var(--marine)' : reached ? 'var(--ok)' : 'var(--neutral-bg)', color: reached || w.status === s ? '#fff' : 'var(--muted)' }}>{i + 1}</div>
+                    <div className="xs mt-1" style={{ color: w.status === s ? 'var(--marine)' : 'var(--muted)', fontWeight: w.status === s ? 700 : 500, lineHeight: 1.2 }}>{WORK_ORDER_STATUS_LABELS[s]}</div>
+                  </div>
+                  {i < FLOW.length - 1 && <div style={{ flex: 1, height: 2, background: flowIdx > i ? 'var(--ok)' : 'var(--border)', marginTop: -18 }} />}
+                </div>
+              );
+            })}
+          </div>
+          {['ON_HOLD', 'REVISION_REQUIRED', 'CANCELLED'].includes(w.status) && <div className="notice warn mt-2">Bu iş emri şu anda <b>&nbsp;{WORK_ORDER_STATUS_LABELS[w.status as WorkOrderStatus]}&nbsp;</b> durumunda.</div>}
+        </div>
+      )}
+
+      <div className="grid g-side">
+        <div className="stack">
+          <Card title="İş detayları">
+            {w.description && <p className="mb-2" style={{ whiteSpace: 'pre-wrap' }}>{w.description}</p>}
+            <KV items={[
+              ['Tekne', <Link to={`/vessels/${w.vessel.id}`}>{w.vessel.name}</Link>],
+              ['Marina / Bağlama', [w.vessel.marina, w.vessel.berth].filter(Boolean).join(' · ')],
+              ['Kategori', w.category ? CATEGORY_LABELS[w.category] : null],
+              ['Talep eden', w.requestedBy?.name],
+              ['Atanan teknisyen', w.technician?.name],
+              ['Planlanan', w.plannedStart ? `${fmtDateTime(w.plannedStart)}${w.plannedEnd ? ' → ' + fmtDateTime(w.plannedEnd) : ''}` : null],
+              ['Planlanan süre', w.plannedHours != null ? `${w.plannedHours} saat` : undefined],
+              ['Başlangıç / bitiş', w.startedAt ? `${fmtDateTime(w.startedAt)}${w.finishedAt ? ' → ' + fmtDateTime(w.finishedAt) : ''}` : null],
+              ['Gerçekleşen süre', w.actualHours != null ? `${w.actualHours} saat` : null],
+            ]} />
+            {w.customerSummary && (
+              <div className="notice mt-2"><CheckCircle2 /><div><b>Müşteri özeti</b><div>{w.customerSummary}</div></div></div>
+            )}
+          </Card>
+
+          {(checklist.length > 0 || canEditChecklist) && (
+            <Card title={`Kontrol listesi · ${done}/${checklist.length}`}>
+              <Progress value={checklist.length ? (done / checklist.length) * 100 : 0} />
+              <div className="stack mt-2" style={{ gap: 8 }}>
+                {checklist.map((c, i) => (
+                  <label key={i} className="checkbox" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                    <input type="checkbox" checked={c.done} disabled={!canEditChecklist} onChange={() => saveChecklist.mutate(checklist.map((x, j) => (j === i ? { ...x, done: !x.done } : x)))} />
+                    <span style={{ textDecoration: c.done ? 'line-through' : 'none', color: c.done ? 'var(--muted)' : undefined }}>{c.label}</span>
+                  </label>
+                ))}
+                {checklist.length === 0 && <Empty title="Kontrol maddesi yok" />}
+              </div>
+            </Card>
+          )}
+
+          <Card title="Fotoğraflar ve dosyalar">
+            {canUpload && !['CLOSED', 'CANCELLED'].includes(w.status) && <div className="mb-2"><Uploader entityType="WORK_ORDER" entityId={w.id} tagOptions={staff} /></div>}
+            <Gallery items={w.attachments ?? []} editable />
+            {!staff && <p className="xs muted mt-2">Yalnızca operasyon ekibi tarafından onaylanmış fotoğraflar görüntülenir.</p>}
+          </Card>
+
+          {staff && (
+            <Card title="Kullanılan malzemeler" pad={false}>
+              {(w.materials ?? []).length === 0 && <Empty title="Malzeme kaydı yok" />}
+              {(w.materials ?? []).map((m: any) => (
+                <div key={m.id} className="list-item">
+                  <div className="grow"><div className="strong">{m.material.name}</div><div className="xs muted">{fmtDateTime(m.usedAt)}</div></div>
+                  <b className="mono">{fmtNum(m.quantity, 2)} {m.material.unit}</b>
+                  {m.unitCost != null && <span className="mono small muted" style={{ width: 90, textAlign: 'right' }}>{fmtMoney(m.quantity * m.unitCost)}</span>}
+                  {manager && <button className="btn btn-sm btn-ghost btn-icon" onClick={() => delMat.mutate(m.id)}><Trash2 /></button>}
+                </div>
+              ))}
+              {(manager || mine) && !['CLOSED', 'CANCELLED'].includes(w.status) && (
+                <div className="toolbar" style={{ borderTop: '1px solid var(--border)', borderBottom: 0 }}>
+                  <select className="select sm" style={{ flex: 2, minWidth: 180 }} value={mat.materialId} onChange={(e) => setMat({ ...mat, materialId: e.target.value })}>
+                    <option value="">Malzeme seçin</option>
+                    {materials.map((m) => <option key={m.id} value={m.id}>{m.name} ({fmtNum(m.stock)} {m.unit} stok)</option>)}
+                  </select>
+                  <input className="input sm" style={{ width: 100 }} type="number" placeholder="Miktar" value={mat.quantity} onChange={(e) => setMat({ ...mat, quantity: e.target.value })} />
+                  <button className="btn btn-sm btn-primary" disabled={!mat.materialId || !mat.quantity} onClick={() => addMat.mutate(undefined)}><Plus /> Ekle</button>
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+
+        <div className="stack">
+          {w.faults?.length > 0 && (
+            <Card title="İlişkili arızalar" pad={false}>
+              {w.faults.map((f: any) => (
+                <div key={f.id} className="list-item"><div className="grow strong">{f.title}</div><StatusBadge map={FAULT_TONE} labels={FAULT_STATUS_LABELS} value={f.status} /></div>
+              ))}
+            </Card>
+          )}
+          {(w.project || w.maintenancePlan || w.reports?.length > 0) && (
+            <Card title="Bağlantılar">
+              <div className="stack small" style={{ gap: 8 }}>
+                {w.project && <div>Proje: <Link to={`/projects/${w.project.id}`}>{w.project.name}</Link></div>}
+                {w.maintenancePlan && <div>Bakım planı: <Link to={`/maintenance?id=${w.maintenancePlan.id}`}>{w.maintenancePlan.title}</Link></div>}
+                {w.reports?.map((r: any) => <div key={r.id}>Rapor: <Link to={`/reports/${r.id}`}>{r.number}</Link></div>)}
+              </div>
+            </Card>
+          )}
+          <Card title={<span className="row" style={{ gap: 8 }}><MessageSquare size={16} /> Açıklamalar</span>}>
+            <div className="stack" style={{ gap: 12 }}>
+              {(w.comments ?? []).length === 0 && <span className="small muted">Henüz açıklama yok.</span>}
+              {(w.comments ?? []).map((c: any) => (
+                <div key={c.id} className="row" style={{ alignItems: 'flex-start' }}>
+                  <Avatar name={c.user.name} size="sm" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="small"><b>{c.user.name}</b> <span className="muted xs">{relTime(c.createdAt)}</span> {staff && c.internal && <Badge tone="neutral" plain>Dahili</Badge>}</div>
+                    <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                  </div>
+                </div>
+              ))}
+              <textarea className="textarea" placeholder="Not / açıklama yazın..." value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 64 }} />
+              <div className="row">
+                {staff && <label className="checkbox small"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Yalnızca personel görsün</label>}
+                <span className="spacer" />
+                <button className="btn btn-sm btn-primary" disabled={!comment.trim()} onClick={() => addComment.mutate(undefined)}>Gönder</button>
+              </div>
+            </div>
+          </Card>
+          <Card title="İş geçmişi">
+            <div className="timeline">
+              {(w.history ?? []).map((h: any, i: number) => (
+                <div key={i} className={`tl-item ${['COMPLETED', 'PUBLISHED', 'CLOSED'].includes(h.toStatus) ? 'ok' : h.toStatus === 'REVISION_REQUIRED' ? 'danger' : ''}`}>
+                  <div className="small strong">{h.fromStatus ? `${WORK_ORDER_STATUS_LABELS[h.fromStatus as WorkOrderStatus]} → ` : ''}{WORK_ORDER_STATUS_LABELS[h.toStatus as WorkOrderStatus]}</div>
+                  <div className="xs muted">{fmtDateTime(h.createdAt)}{h.user ? ` · ${h.user.name}` : ''}</div>
+                  {h.note && <div className="xs">{h.note}</div>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {edit && <WorkOrderForm initial={{ ...w, vesselId: w.vessel.id, technicianId: w.technician?.id ?? '', plannedStart: toInputDateTime(w.plannedStart), plannedEnd: toInputDateTime(w.plannedEnd), checklist: w.checklist ?? [] }} onClose={() => setEdit(false)} />}
+      {assign && <AssignModal wo={w} onClose={() => setAssign(false)} />}
+      {transition && <TransitionModal wo={w} to={transition} onClose={() => setTransition(null)} />}
+    </div>
+  );
+}
+
+function AssignModal({ wo, onClose }: { wo: any; onClose: () => void }) {
+  const techs = usePeople('TECHNICIAN');
+  const status = useApi<any[]>('/technicians').data ?? [];
+  const [f, setF] = useState({ technicianId: wo.technician?.id ?? '', plannedStart: toInputDateTime(wo.plannedStart), plannedEnd: toInputDateTime(wo.plannedEnd) });
+  const save = useAction(() => api(`/work-orders/${wo.id}/assign`, { body: { ...f, plannedStart: f.plannedStart || null, plannedEnd: f.plannedEnd || null } }), { success: 'Teknisyen atandı ve bilgilendirildi', onSuccess: onClose });
+  return (
+    <Modal open onClose={onClose} title="Teknisyen ata" footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.technicianId} onClick={() => save.mutate(undefined)}>Ata</button></>}>
+      <div className="stack">
+        <div className="stack" style={{ gap: 6 }}>
+          {techs.map((t) => {
+            const s = status.find((x) => x.id === t.id);
+            return (
+              <label key={t.id} className="row" style={{ border: `1.5px solid ${f.technicianId === t.id ? 'var(--marine)' : 'var(--border)'}`, borderRadius: 10, padding: '8px 12px', cursor: 'pointer', background: f.technicianId === t.id ? 'var(--sky)' : undefined }}>
+                <input type="radio" name="tech" checked={f.technicianId === t.id} onChange={() => setF({ ...f, technicianId: t.id })} style={{ accentColor: 'var(--marine)' }} />
+                <Avatar name={t.name} size="sm" />
+                <div style={{ flex: 1 }}><b className="small">{t.name}</b><div className="xs muted">{t.title}</div></div>
+                {s && <span className="xs muted">{s.openCount} açık iş · bugün {s.todayCount}</span>}
+              </label>
+            );
+          })}
+        </div>
+        <div className="form-grid">
+          <Field label="Planlanan başlangıç"><input className="input" type="datetime-local" value={f.plannedStart} onChange={(e) => setF({ ...f, plannedStart: e.target.value })} /></Field>
+          <Field label="Planlanan bitiş"><input className="input" type="datetime-local" value={f.plannedEnd} onChange={(e) => setF({ ...f, plannedEnd: e.target.value })} /></Field>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function TransitionModal({ wo, to, onClose }: { wo: any; to: WorkOrderStatus; onClose: () => void }) {
+  const [note, setNote] = useState('');
+  const [summary, setSummary] = useState(wo.customerSummary ?? '');
+  const save = useAction(() => api(`/work-orders/${wo.id}/status`, { body: { status: to, note: note || null, customerSummary: to === 'PUBLISHED' ? summary : undefined } }), { success: `Durum güncellendi: ${WORK_ORDER_STATUS_LABELS[to]}`, onSuccess: onClose });
+  const m = ACTION_META[to]!;
+  return (
+    <Modal open onClose={onClose} title={m.label} footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className={m.cls.includes('btn-') ? m.cls : 'btn btn-primary'} disabled={(to === 'PUBLISHED' && !summary.trim()) || (to === 'REVISION_REQUIRED' && !note.trim())} onClick={() => save.mutate(undefined)}>Onayla</button></>}>
+      <div className="stack">
+        <p className="muted">{WORK_ORDER_STATUS_LABELS[wo.status as WorkOrderStatus]} → <b>{WORK_ORDER_STATUS_LABELS[to]}</b></p>
+        {to === 'TECHNICAL_REVIEW' && <div className="notice">İş bitiş zamanı kaydedilecek ve operasyon yöneticisine kontrol bildirimi gönderilecek.</div>}
+        {to === 'PUBLISHED' && (
+          <>
+            <div className="notice">Yayınlandığında tekne sahibi ve kaptan bilgilendirilir. Yalnızca "müşteriye görünür" olarak işaretlenmiş fotoğraflar paylaşılır.</div>
+            <Field label="Müşteriye görünecek özet *"><textarea className="textarea" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Yapılan işlemler ve sonuç..." /></Field>
+          </>
+        )}
+        <Field label={to === 'REVISION_REQUIRED' ? 'Revizyon nedeni *' : 'Not (isteğe bağlı)'}><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      </div>
+    </Modal>
+  );
+}

@@ -177,7 +177,7 @@ async function main() {
   const statuses: WorkOrderStatus[] = ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'ASSIGNED', 'IN_PROGRESS', 'IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'PUBLISHED', 'CLOSED', 'CLOSED', 'CLOSED', 'ON_HOLD', 'REVISION_REQUIRED'];
   const chain: WorkOrderStatus[] = ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED'];
   for (let i = 0; i < 70; i++) {
-    const vessel = i < 6 ? vessels[i % 2] : pick(vessels.slice(0, -1));
+    const vessel = i < 6 || [9, 10, 12, 13].includes(i) ? vessels[i % 2] : pick(vessels.slice(0, -1));
     const cat = pick(catKeys);
     const title = pick(MAINTENANCE_CATEGORIES[cat].items);
     const status = i < statuses.length ? statuses[i] : pick(statuses);
