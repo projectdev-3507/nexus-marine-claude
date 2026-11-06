@@ -1,0 +1,7 @@
+**/node_modules
+**/dist
+apps/mobile
+apps/api/storage
+apps/api/storage-test
+apps/api/.env
+.git
