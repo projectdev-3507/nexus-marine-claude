@@ -38,6 +38,8 @@ const SearchPage = lazy(() => import('./pages/Search'));
 const PortalHome = lazy(() => import('./pages/Portal').then((m) => ({ default: m.PortalHome })));
 const PortalMaintenance = lazy(() => import('./pages/Portal').then((m) => ({ default: m.PortalMaintenance })));
 const PortalRequest = lazy(() => import('./pages/Portal').then((m) => ({ default: m.PortalRequest })));
+const PortalCalendar = lazy(() => import('./pages/PortalCalendar'));
+const PortalOffers = lazy(() => import('./pages/PortalOffers'));
 
 function Guard({ perm, children }: { perm: Permission[]; children: ReactNode }) {
   const { can } = useAuth();
@@ -97,8 +99,9 @@ export default function App() {
             <Route index element={<S><PortalHome /></S>} />
             <Route path="maintenance" element={<S><PortalMaintenance /></S>} />
             <Route path="request" element={<S><PortalRequest /></S>} />
-            <Route path="documents" element={<S><Documents portal /></S>} />
-            <Route path="quotes" element={<S><Guard perm={['quotes.respond']}><QuotesList /></Guard></S>} />
+            <Route path="documents" element={<S><PortalOffers /></S>} />
+            <Route path="calendar" element={<S><PortalCalendar /></S>} />
+            <Route path="quotes" element={<S><Guard perm={['quotes.respond']}><PortalOffers /></Guard></S>} />
             <Route path="quotes/:id" element={<S><Guard perm={['quotes.respond']}><QuoteDetail /></Guard></S>} />
             <Route path="vessels/:id" element={<S><VesselDetail /></S>} />
             <Route path="work-orders" element={<S><WorkOrders /></S>} />

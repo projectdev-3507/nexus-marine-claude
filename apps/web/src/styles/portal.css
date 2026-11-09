@@ -1,0 +1,154 @@
+/* ───────── Müşteri portalı — modern görünüm (yalnızca .portal-shell altında) ───────── */
+.portal-shell {
+  --radius: 18px;
+  --grad: linear-gradient(135deg, #1767ad 0%, #2a8fe0 100%);
+  --grad-deep: linear-gradient(135deg, #0b2342 0%, #12487f 60%, #1767ad 100%);
+  --shadow: 0 1px 2px rgba(11, 35, 66, 0.04), 0 8px 24px -8px rgba(11, 35, 66, 0.10);
+  --shadow-hover: 0 2px 4px rgba(11, 35, 66, 0.05), 0 16px 32px -10px rgba(11, 35, 66, 0.18);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 420px at 85% -120px, rgba(42, 143, 224, 0.14), transparent 70%),
+    radial-gradient(900px 380px at -10% -60px, rgba(109, 75, 216, 0.08), transparent 70%),
+    #f3f6fb;
+}
+
+/* Üst bar: koyu cam efekti, sabit */
+.portal-shell .portal-top { position: sticky; top: 0; z-index: 60; background: rgba(9, 28, 52, 0.86); backdrop-filter: saturate(160%) blur(14px); -webkit-backdrop-filter: saturate(160%) blur(14px); border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.portal-shell .portal-nav { gap: 2px; background: rgba(255, 255, 255, 0.06); padding: 4px; border-radius: 14px; }
+.portal-shell .portal-nav a { padding: 7px 14px; border-radius: 10px; font-size: 13.5px; transition: background 0.15s, color 0.15s; }
+.portal-shell .portal-nav a .ti { display: inline-grid; }
+.portal-shell .portal-nav a.active { background: #fff; color: var(--navy); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); }
+.portal-shell .portal-nav a:not(.active):hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.portal-shell .icon-btn.glass { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); color: #fff; border-radius: 12px; }
+.portal-shell .icon-btn.glass:hover { background: rgba(255, 255, 255, 0.16); }
+.portal-shell .icon-btn .dot { border-color: #0b2342; }
+
+/* İçerik geçişi */
+.portal-shell .portal-content { animation: pfade 0.28s ease-out; }
+@keyframes pfade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Başlıklar */
+.portal-shell .page-head h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.025em; }
+.portal-shell .page-head .sub { font-size: 14px; }
+
+/* Kartlar */
+.portal-shell .card { border: 1px solid rgba(214, 225, 237, 0.8); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.portal-shell .card-head { border-bottom: 1px solid #edf2f7; padding: 16px 20px 14px; }
+.portal-shell .card-head h2 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.portal-shell .card-head h2 svg { color: var(--marine); }
+.portal-shell .list-item { padding: 14px 20px; border-bottom-color: #eef3f8; transition: background 0.15s; }
+.portal-shell .list-item.clickable:hover { background: linear-gradient(90deg, #f3f8fe, #fff); }
+.portal-shell .date-tile { border-radius: 12px; background: var(--grad); color: #fff; box-shadow: 0 4px 10px -4px rgba(23, 103, 173, 0.6); }
+
+/* Butonlar */
+.portal-shell .btn { border-radius: 11px; transition: transform 0.12s, box-shadow 0.15s, background 0.15s; }
+.portal-shell .btn:active { transform: scale(0.97); }
+.portal-shell .btn-primary { background: var(--grad); border-color: transparent; box-shadow: 0 6px 16px -6px rgba(23, 103, 173, 0.7); }
+.portal-shell .btn-primary:hover { background: linear-gradient(135deg, #12579a 0%, #2382d2 100%); box-shadow: 0 8px 20px -6px rgba(23, 103, 173, 0.8); }
+.portal-shell .btn-light { backdrop-filter: blur(6px); }
+.portal-shell .seg { border-radius: 12px; padding: 4px; background: #e8eef5; }
+.portal-shell .seg button { border-radius: 9px; padding: 7px 14px; }
+
+/* Anasayfa hero */
+.portal-shell .vessel-hero { border-radius: 24px; box-shadow: 0 24px 50px -24px rgba(7, 24, 46, 0.55); }
+.portal-shell .vessel-hero h1 { font-size: 34px; font-weight: 800; letter-spacing: -0.03em; }
+
+/* Bakımlar: servis talebi kartı */
+.request-cta { position: relative; overflow: hidden; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 20px 22px; border-radius: 20px; color: #fff; background: var(--grad-deep, linear-gradient(135deg, #0b2342, #1767ad)); box-shadow: 0 18px 40px -20px rgba(11, 35, 66, 0.7); }
+.request-cta::after { content: ''; position: absolute; right: -60px; top: -80px; width: 240px; height: 240px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 70%); pointer-events: none; }
+.request-cta .rc-ic { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; background: rgba(255, 255, 255, 0.14); flex: none; }
+.request-cta .rc-ic svg { width: 24px; height: 24px; }
+.request-cta .rc-txt { flex: 1 1 240px; min-width: 0; }
+.request-cta .rc-txt b { display: block; font-size: 17px; letter-spacing: -0.01em; }
+.request-cta .rc-txt span { display: block; font-size: 13px; color: #c7d8ec; margin-top: 2px; }
+.request-cta .rc-act { display: flex; gap: 8px; flex-wrap: wrap; position: relative; z-index: 1; }
+.request-cta .btn-primary { background: #fff; color: var(--navy); box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.4); }
+.request-cta .btn-primary:hover { background: #eef5fd; }
+@media (max-width: 560px) { .request-cta .rc-act, .request-cta .rc-act .btn { width: 100%; justify-content: center; } }
+
+/* Teklifler / Belgeler sekmeleri */
+.big-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 5px; background: #e8eef5; border-radius: 16px; max-width: 460px; }
+.big-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; background: none; padding: 11px 12px; border-radius: 12px; font: inherit; font-weight: 700; font-size: 14px; color: var(--text-2); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.big-tabs button svg { width: 18px; height: 18px; }
+.big-tabs button.active { background: #fff; color: var(--navy); box-shadow: 0 2px 10px rgba(11, 35, 66, 0.12); }
+.big-tabs button.active svg { color: var(--marine); }
+
+/* Çipler */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.chips button { flex: none; border: 1px solid var(--border); background: #fff; color: var(--text-2); border-radius: 99px; padding: 7px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chips button.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+/* ───────── Müşteri takvimi ───────── */
+.pcal { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .pcal { grid-template-columns: 1fr; } }
+.pcal-month { padding: 18px; }
+.pcal-head { display: flex; align-items: center; gap: 8px; }
+.pcal-head h2 { flex: 1; text-align: center; font-size: 19px; font-weight: 800; text-transform: capitalize; letter-spacing: -0.02em; }
+.pcal-nav { width: 38px; height: 38px; border-radius: 12px; border: 1px solid var(--border); background: #fff; display: grid; place-items: center; cursor: pointer; color: var(--navy); }
+.pcal-nav:hover { background: var(--sky); }
+.pcal-nav svg { width: 18px; height: 18px; }
+.pcal-today { order: -1; }
+.pcal-legend { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin: 14px 0 10px; }
+.pcal-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-2); background: #f3f6fa; border-radius: 99px; padding: 4px 10px; }
+.pcal-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.pcal-legend b { color: var(--navy); }
+.k-maint { --c: #6d4bd8; --cbg: #f0ecfd; }
+.k-wo { --c: #1767ad; --cbg: #e7f1fb; }
+.k-proj { --c: #0e9488; --cbg: #e3f6f3; }
+.pcal-wd { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 4px 0 6px; }
+.pcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.pcal-day { aspect-ratio: 1 / 0.92; border: 0; background: none; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; font: inherit; color: var(--navy); transition: background 0.12s; }
+.pcal-day .n { font-size: 14.5px; font-weight: 600; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; }
+.pcal-day .dots { display: flex; gap: 3px; height: 6px; }
+.pcal-day .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.pcal-day:hover { background: #f1f6fc; }
+.pcal-day.has { background: #f6f9fd; }
+.pcal-day.out { opacity: 0.35; }
+.pcal-day.today .n { background: var(--grad); color: #fff; box-shadow: 0 4px 10px -3px rgba(23, 103, 173, 0.6); }
+.pcal-day.sel { background: var(--navy); }
+.pcal-day.sel .n { color: #fff; }
+.pcal-day.sel .dots i { box-shadow: 0 0 0 1.5px var(--navy), 0 0 0 2.5px rgba(255, 255, 255, 0.7); }
+
+.pcal-agenda { min-height: 200px; }
+.pcal-agenda-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 18px 20px 14px; border-bottom: 1px solid #edf2f7; }
+.pcal-agenda-head span { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.pcal-agenda-head h2 { font-size: 18px; font-weight: 800; text-transform: capitalize; letter-spacing: -0.02em; }
+.pcal-clear { display: inline-flex; align-items: center; gap: 4px; border: 0; background: var(--sky); color: var(--marine); font: inherit; font-size: 12.5px; font-weight: 700; padding: 6px 10px; border-radius: 99px; cursor: pointer; }
+.pcal-list { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 560px; overflow: auto; }
+.pcal-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; cursor: pointer; border: 1px solid transparent; background: linear-gradient(90deg, var(--cbg), #fff 70%); position: relative; transition: border-color 0.15s, transform 0.15s; }
+.pcal-list li::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--c); }
+.pcal-list li:hover { border-color: var(--border); transform: translateX(2px); }
+.pcal-list li.done { opacity: 0.6; }
+.pcal-date { width: 44px; flex: none; text-align: center; line-height: 1.05; }
+.pcal-date b { display: block; font-size: 20px; font-weight: 800; color: var(--navy); }
+.pcal-date span { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.pcal-body { flex: 1; min-width: 0; }
+.pcal-body > b { display: block; font-size: 14px; color: var(--navy); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcal-body small { display: block; font-size: 12px; color: var(--muted); }
+.pcal-kind { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c); }
+.pcal-kind svg { width: 13px; height: 13px; }
+.pcal-kind em { font-style: normal; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcal-when { flex: none; font-size: 11.5px; font-weight: 700; color: var(--c); background: #fff; border: 1px solid var(--cbg); padding: 3px 9px; border-radius: 99px; }
+.pcal-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 36px 24px; color: var(--muted); font-size: 13px; }
+.pcal-empty svg { width: 36px; height: 36px; color: #b5c6d8; }
+.pcal-empty b { color: var(--navy); font-size: 14.5px; }
+
+/* ───────── Mobil: yüzen alt menü ───────── */
+@media (max-width: 860px) {
+  .portal-shell .portal-content { padding: 16px 14px 120px; }
+  .portal-shell .page-head h1 { font-size: 24px; }
+  .portal-shell .bottom-tabs {
+    left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.7); border-radius: 22px;
+    background: rgba(255, 255, 255, 0.82); backdrop-filter: saturate(180%) blur(16px); -webkit-backdrop-filter: saturate(180%) blur(16px);
+    box-shadow: 0 12px 32px -8px rgba(11, 35, 66, 0.28);
+  }
+  .portal-shell .bottom-tabs a { gap: 3px; padding: 4px 0 2px; font-size: 10.5px; color: #7a8ba0; }
+  .portal-shell .bottom-tabs a .ti { width: 44px; height: 28px; border-radius: 14px; display: grid; place-items: center; transition: background 0.2s, color 0.2s; }
+  .portal-shell .bottom-tabs a svg { width: 20px; height: 20px; }
+  .portal-shell .bottom-tabs a.active { color: var(--navy); }
+  .portal-shell .bottom-tabs a.active .ti { background: var(--grad); color: #fff; box-shadow: 0 6px 14px -6px rgba(23, 103, 173, 0.8); }
+  .pcal-month { padding: 14px 10px; }
+  .pcal-day .n { font-size: 13.5px; width: 28px; height: 28px; }
+  .pcal-day { border-radius: 10px; }
+}

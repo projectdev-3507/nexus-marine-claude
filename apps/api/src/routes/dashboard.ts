@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { OPEN_WORK_ORDER_STATUSES, WORK_ORDER_STATUSES } from '@nexus/shared';
 import { prisma } from '../db';
 import { ah } from '../lib/errors';
-import { requirePerm, vesselFilter, type AuthedRequest } from '../lib/auth';
+import { can, requirePerm, vesselFilter, type AuthedRequest } from '../lib/auth';
 import { startOfWeek, workOrderScope } from './workorders';
 
 export const dashboardRouter = Router();
@@ -127,24 +127,24 @@ calendarRouter.get(
     const extra = { ...(q.vesselId ? { vesselId: q.vesselId } : {}), ...(q.technicianId ? { technicianId: q.technicianId } : {}) };
     const [wos, plans, phases] = await Promise.all([
       prisma.workOrder.findMany({
-        where: { ...workOrderScope(req.user), ...extra, status: { not: 'CANCELLED' }, OR: [{ plannedStart: { gte: q.from, lte: q.to } }, { plannedEnd: { gte: q.from, lte: q.to } }] },
+        where: { ...workOrderScope(req.user), ...extra, status: { not: 'CANCELLED' }, plannedStart: { not: null, lte: q.to }, OR: [{ plannedEnd: { gte: q.from } }, { plannedEnd: null, plannedStart: { gte: q.from } }] },
         select: { id: true, number: true, title: true, status: true, priority: true, plannedStart: true, plannedEnd: true, vessel: { select: { id: true, name: true } }, technician: { select: { id: true, name: true } } },
       }),
       prisma.maintenancePlan.findMany({
         where: { ...vf, ...extra, workOrderId: null, status: { not: 'CANCELLED' }, plannedDate: { gte: q.from, lte: q.to } },
         select: { id: true, title: true, status: true, priority: true, plannedDate: true, category: true, vessel: { select: { id: true, name: true } }, technician: { select: { id: true, name: true } } },
       }),
-      req.user.isStaff
+      can(req.user, 'projects.view')
         ? prisma.projectPhase.findMany({
             where: { project: { ...vf, ...(q.vesselId ? { vesselId: q.vesselId } : {}) }, startDate: { lte: q.to }, endDate: { gte: q.from } },
-            select: { id: true, name: true, status: true, startDate: true, endDate: true, project: { select: { id: true, name: true, vessel: { select: { name: true } } } } },
+            select: { id: true, name: true, status: true, startDate: true, endDate: true, project: { select: { id: true, name: true, vessel: { select: { id: true, name: true } } } } },
           })
         : Promise.resolve([]),
     ]);
     res.json([
       ...wos.map((w) => ({ kind: 'WORK_ORDER', id: w.id, title: w.title, number: w.number, start: w.plannedStart, end: w.plannedEnd ?? w.plannedStart, status: w.status, priority: w.priority, vessel: w.vessel, technician: w.technician })),
       ...plans.map((m) => ({ kind: 'MAINTENANCE', id: m.id, title: m.title, start: m.plannedDate, end: m.plannedDate, status: m.status, priority: m.priority, category: m.category, vessel: m.vessel, technician: m.technician })),
-      ...phases.map((p) => ({ kind: 'PROJECT_PHASE', id: p.project.id, title: `${p.project.name} · ${p.name}`, start: p.startDate, end: p.endDate, status: p.status, vessel: { name: p.project.vessel.name } })),
+      ...phases.map((p) => ({ kind: 'PROJECT_PHASE', id: p.project.id, title: `${p.project.name} · ${p.name}`, start: p.startDate, end: p.endDate, status: p.status, vessel: p.project.vessel, phase: p.name, project: p.project.name })),
     ]);
   }),
 );

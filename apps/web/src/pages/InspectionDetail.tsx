@@ -134,7 +134,7 @@ export default function InspectionDetail() {
                             <input className="input sm" disabled={!editable} placeholder={it.unit ? `Ölçüm (${it.unit})` : 'Ölçüm değeri'} defaultValue={it.measurement ?? ''} onBlur={(e) => e.target.value !== (it.measurement ?? '') && updateItem(it.id, { measurement: e.target.value })} />
                             <input className="input sm" disabled={!editable} placeholder="Açıklama" defaultValue={it.note ?? ''} onBlur={(e) => e.target.value !== (it.note ?? '') && updateItem(it.id, { note: e.target.value })} />
                             <div className="row" style={{ gap: 6 }}>
-                              {editable && <div style={{ width: 140 }}><Uploader compact entityType="INSPECTION_ITEM" entityId={it.id} accept="image/*" /></div>}
+                              {editable && <div style={{ width: 140 }}><Uploader compact entityType="INSPECTION_ITEM" entityId={it.id} accept="image/*,video/*" /></div>}
                               {it.result === 'FAULT' && it.fault && (it.fault.workOrderId ? <Link className="btn btn-sm" to={`/work-orders/${it.fault.workOrderId}`}><ClipboardList /> İş emri</Link> : can('workorders.manage') ? <button className="btn btn-sm btn-danger" onClick={() => openWO.mutate(it.id)}><ClipboardList /> İş emri aç</button> : <Badge tone="danger"><AlertTriangle size={12} /> Arıza kaydı</Badge>)}
                               {it.result === 'ATTENTION' && can('workorders.manage') && !it.fault && <button className="btn btn-sm" onClick={() => openWO.mutate(it.id)}>İş emri aç</button>}
                             </div>

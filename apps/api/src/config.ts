@@ -20,6 +20,6 @@ export const config = {
   storageDir: path.resolve(process.env.STORAGE_DIR ?? './storage'),
   expoPushEnabled: process.env.EXPO_PUSH_ENABLED === 'true',
   schedulerIntervalMin: Number(process.env.SCHEDULER_INTERVAL_MIN ?? 60),
-  maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? 15),
+  maxUploadMb: Number(process.env.MAX_UPLOAD_MB ?? 200),
   webDistDir: process.env.WEB_DIST_DIR ? path.resolve(process.env.WEB_DIST_DIR) : undefined,
 };

@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Play, Square, CheckCircle2, Send, UserPlus, Pencil, Lock, MessageSquare, Plus, Trash2, Clock, RotateCcw, PauseCircle, XCircle } from 'lucide-react';
+import { Play, Square, CheckCircle2, Send, UserPlus, Pencil, Lock, MessageSquare, Plus, Trash2, Clock, RotateCcw, PauseCircle, XCircle, Paperclip, X, FileText, Film, Image as ImageIcon } from 'lucide-react';
 import { WORK_ORDER_STATUS_LABELS, WORK_ORDER_TRANSITIONS, TECHNICIAN_TRANSITIONS, type WorkOrderStatus } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
-import { api } from '../lib/api';
+import { api, uploadFiles } from '../lib/api';
 import { Avatar, Badge, Card, Empty, Field, KV, Loading, Modal, PageHeader, StatusBadge, Progress } from '../components/ui';
-import { Gallery, Uploader } from '../components/media';
+import { AttachmentStrip, Gallery, MEDIA_ACCEPT, Uploader } from '../components/media';
 import { WorkOrderForm } from './WorkOrders';
 import { useMaterialOptions, usePeople } from '../lib/lookups';
 import { fmtDateTime, fmtMoney, fmtNum, relTime, toInputDateTime } from '../lib/format';
@@ -40,7 +40,16 @@ export default function WorkOrderDetail() {
   const materials = useMaterialOptions();
 
   const saveChecklist = useAction((checklist: any[]) => api(`/work-orders/${id}`, { method: 'PUT', body: { checklist } }));
-  const addComment = useAction(() => api(`/work-orders/${id}/comments`, { body: { body: comment, internal: staff ? internal : false } }), { success: 'Yorum eklendi', onSuccess: () => setComment('') });
+  const [pending, setPending] = useState<File[]>([]);
+  const addComment = useAction(
+    async () => {
+      const c = await api<any>(`/work-orders/${id}/comments`, { body: { body: comment, internal: staff ? internal : false, withFiles: pending.length > 0 } });
+      if (pending.length) await uploadFiles('COMMENT', c.id, pending);
+      return c;
+    },
+    { success: staff ? 'Açıklama eklendi' : 'Yorum eklendi', onSuccess: () => { setComment(''); setPending([]); } },
+  );
+  const delFile = useAction((fileId: string) => api(`/files/${fileId}`, { method: 'DELETE' }), { success: 'Dosya silindi' });
   const addMat = useAction(() => api(`/work-orders/${id}/materials`, { body: { materialId: mat.materialId, quantity: Number(mat.quantity) } }), { success: 'Malzeme eklendi, stoktan düşüldü', onSuccess: () => setMat({ materialId: '', quantity: '' }) });
   const delMat = useAction((usageId: string) => api(`/work-orders/${id}/materials/${usageId}`, { method: 'DELETE' }), { success: 'Malzeme kaldırıldı' });
 
@@ -131,7 +140,7 @@ export default function WorkOrderDetail() {
           )}
 
           <Card title="Fotoğraflar ve dosyalar">
-            {canUpload && !['CLOSED', 'CANCELLED'].includes(w.status) && <div className="mb-2"><Uploader entityType="WORK_ORDER" entityId={w.id} tagOptions={staff} /></div>}
+            {canUpload && !['CLOSED', 'CANCELLED'].includes(w.status) && <div className="mb-2"><Uploader entityType="WORK_ORDER" entityId={w.id} tagOptions={staff} accept={MEDIA_ACCEPT} /></div>}
             <Gallery items={w.attachments ?? []} editable />
             {!staff && <p className="xs muted mt-2">Yalnızca operasyon ekibi tarafından onaylanmış fotoğraflar görüntülenir.</p>}
           </Card>
@@ -178,23 +187,47 @@ export default function WorkOrderDetail() {
               </div>
             </Card>
           )}
-          <Card title={<span className="row" style={{ gap: 8 }}><MessageSquare size={16} /> Açıklamalar</span>}>
+          <Card title={<span className="row" style={{ gap: 8 }}><MessageSquare size={16} /> {staff ? 'Açıklamalar' : 'Yorumlar'}</span>}>
             <div className="stack" style={{ gap: 12 }}>
-              {(w.comments ?? []).length === 0 && <span className="small muted">Henüz açıklama yok.</span>}
+              {(w.comments ?? []).length === 0 && <span className="small muted">{staff ? 'Henüz açıklama yok.' : 'Henüz yorum yok.'}</span>}
               {(w.comments ?? []).map((c: any) => (
                 <div key={c.id} className="row" style={{ alignItems: 'flex-start' }}>
                   <Avatar name={c.user.name} size="sm" />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="small"><b>{c.user.name}</b> <span className="muted xs">{relTime(c.createdAt)}</span> {staff && c.internal && <Badge tone="neutral" plain>Dahili</Badge>}</div>
-                    <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>
+                    {c.body && <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>}
+                    <AttachmentStrip
+                      items={(w.commentFiles ?? []).filter((f: any) => f.entityId === c.id)}
+                      onDelete={c.user.id === user?.id || manager ? (a) => delFile.mutate(a.id) : undefined}
+                    />
                   </div>
                 </div>
               ))}
-              <textarea className="textarea" placeholder="Not / açıklama yazın..." value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 64 }} />
-              <div className="row">
-                {staff && <label className="checkbox small"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Yalnızca personel görsün</label>}
-                <span className="spacer" />
-                <button className="btn btn-sm btn-primary" disabled={!comment.trim()} onClick={() => addComment.mutate(undefined)}>Gönder</button>
+              <div className="composer">
+                <textarea className="textarea" placeholder={staff ? 'Not / açıklama yazın...' : 'Yorum yazın...'} value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 64 }} />
+                {pending.length > 0 && (
+                  <div className="pending-files">
+                    {pending.map((f, i) => (
+                      <span key={i} className="pf">
+                        {f.type.startsWith('image/') ? <ImageIcon /> : f.type.startsWith('video/') ? <Film /> : <FileText />}
+                        <span className="pf-name">{f.name}</span>
+                        <small>{(f.size / 1048576).toFixed(1)} MB</small>
+                        <button onClick={() => setPending(pending.filter((_, j) => j !== i))} aria-label="Kaldır"><X /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="row composer-bar">
+                  <label className="btn btn-sm attach-btn" title="Fotoğraf, video veya belge ekle">
+                    <Paperclip /> <span>Ekle</span>
+                    <input type="file" multiple hidden accept={MEDIA_ACCEPT} onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; setPending([...pending, ...fs].slice(0, 10)); }} />
+                  </label>
+                  {staff && <label className="checkbox small"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Yalnızca personel görsün</label>}
+                  <span className="spacer" />
+                  <button className="btn btn-sm btn-primary" disabled={(!comment.trim() && !pending.length) || addComment.isPending} onClick={() => addComment.mutate(undefined)}>
+                    {addComment.isPending ? (pending.length ? 'Yükleniyor…' : 'Gönderiliyor…') : <><Send /> Gönder</>}
+                  </button>
+                </div>
               </div>
             </div>
           </Card>

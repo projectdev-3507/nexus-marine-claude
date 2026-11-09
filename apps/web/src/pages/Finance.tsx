@@ -23,7 +23,7 @@ export default function Finance() {
   );
 }
 
-export function QuotesList({ portal }: { portal?: boolean }) {
+export function QuotesList({ portal, embedded }: { portal?: boolean; embedded?: boolean }) {
   const nav = useNavigate();
   const { can } = useAuth();
   const ls = useListState();
@@ -40,7 +40,7 @@ export function QuotesList({ portal }: { portal?: boolean }) {
   ];
   return (
     <>
-      {portal && <PageHeader title="Teklifler" sub="Size iletilen teklifleri inceleyin, onaylayın veya reddedin." />}
+      {portal && !embedded && <PageHeader title="Teklifler" sub="Size iletilen teklifleri inceleyin, onaylayın veya reddedin." />}
       <Card pad={false}>
         <div className="toolbar">
           <SearchInput value={ls.q} onChange={ls.setQ} />

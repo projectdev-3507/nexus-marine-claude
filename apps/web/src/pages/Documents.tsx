@@ -9,7 +9,7 @@ import { useCustomerOptions, useVesselOptions } from '../lib/lookups';
 import { fmtDate } from '../lib/format';
 import { DOC_CATEGORY_LABELS } from '../lib/labels';
 
-export default function Documents({ portal }: { portal?: boolean }) {
+export default function Documents({ portal, embedded }: { portal?: boolean; embedded?: boolean }) {
   const { can } = useAuth();
   const ls = useListState();
   const [category, setCategory] = useState('');
@@ -35,7 +35,7 @@ export default function Documents({ portal }: { portal?: boolean }) {
   ];
   return (
     <div>
-      <PageHeader title={portal ? 'Belgelerim' : 'Belgeler ve Sözleşmeler'} sub={portal ? 'Sözleşmeler, sertifikalar ve onaylı teknik raporlar' : 'Sözleşme, sertifika, sigorta ve teknik belge arşivi'} actions={can('documents.manage') && <button className="btn btn-primary" onClick={() => setForm(true)}><Plus /> Belge ekle</button>} />
+      {!embedded && <PageHeader title={portal ? 'Belgelerim' : 'Belgeler ve Sözleşmeler'} sub={portal ? 'Sözleşmeler, sertifikalar ve onaylı teknik raporlar' : 'Sözleşme, sertifika, sigorta ve teknik belge arşivi'} actions={can('documents.manage') && <button className="btn btn-primary" onClick={() => setForm(true)}><Plus /> Belge ekle</button>} />}
       {portal && reports.length > 0 && (
         <Card title="Onaylı teknik raporlar" pad={false} className="mb-2">
           {reports.map((r: any) => (
