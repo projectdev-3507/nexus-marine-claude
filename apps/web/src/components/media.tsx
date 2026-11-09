@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Eye, EyeOff, Trash2, Upload, FileText, Download } from 'lucide-react';
+import { Camera, Eye, EyeOff, Trash2, Upload, FileText, Download, Play, X } from 'lucide-react';
 import { api, fileUrl, uploadFiles } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAction } from '../lib/hooks';
@@ -62,7 +62,7 @@ export function Uploader({ entityType, entityId, onDone, compact, tagOptions, ac
           {up.isPending ? <span>Yükleniyor...</span> : (
             <>
               {compact ? <Camera size={16} /> : <Upload size={18} />}
-              <span className="small strong">{compact ? 'Fotoğraf ekle' : 'Fotoğraf / belge yükle — sürükleyip bırakın veya tıklayın'}</span>
+              <span className="small strong">{compact ? (accept.includes('video') ? 'Fotoğraf / video ekle' : 'Fotoğraf ekle') : `${accept.includes('video') ? 'Fotoğraf / video / belge' : 'Fotoğraf / belge'} yükle — sürükleyip bırakın veya tıklayın`}</span>
             </>
           )}
         </div>
@@ -71,13 +71,68 @@ export function Uploader({ entityType, entityId, onDone, compact, tagOptions, ac
   );
 }
 
+export const MEDIA_ACCEPT = 'image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt';
+const isMedia = (a: { mimeType: string }) => a.mimeType.startsWith('image/') || a.mimeType.startsWith('video/');
+type Zoom = { url: string; video: boolean } | null;
+
+/** Tam ekran görüntüleyici — fotoğraf veya video */
+export function Lightbox({ zoom, onClose }: { zoom: Zoom; onClose: () => void }) {
+  if (!zoom) return null;
+  return (
+    <div className="lightbox" onClick={onClose}>
+      {zoom.video ? <video src={zoom.url} controls autoPlay playsInline onClick={(e) => e.stopPropagation()} /> : <img src={zoom.url} alt="" />}
+      <button className="lb-close" onClick={onClose} aria-label="Kapat"><X /></button>
+    </div>
+  );
+}
+
+/** Küçük önizleme: fotoğraf veya video karesi */
+function Thumb({ a, onOpen }: { a: Attachment; onOpen: () => void }) {
+  return a.mimeType.startsWith('video/') ? (
+    <div className="thumb-video" onClick={onOpen}>
+      <video src={`${fileUrl(a.id)}#t=0.1`} preload="metadata" muted playsInline />
+      <span className="play"><Play /></span>
+    </div>
+  ) : (
+    <img src={fileUrl(a.id)} alt={a.caption ?? a.fileName} loading="lazy" onClick={onOpen} />
+  );
+}
+
+/** Yorum altındaki ekler: medya küçük kareler, belgeler indirilebilir çipler */
+export function AttachmentStrip({ items, onDelete }: { items: Attachment[]; onDelete?: (a: Attachment) => void }) {
+  const [zoom, setZoom] = useState<Zoom>(null);
+  if (!items.length) return null;
+  const media = items.filter(isMedia);
+  const docs = items.filter((i) => !isMedia(i));
+  return (
+    <div className="att-strip">
+      {media.length > 0 && (
+        <div className="att-media">
+          {media.map((a) => (
+            <div key={a.id} className="att-tile">
+              <Thumb a={a} onOpen={() => setZoom({ url: fileUrl(a.id), video: a.mimeType.startsWith('video/') })} />
+              {onDelete && <button className="att-del" title="Sil" onClick={() => confirm('Dosya silinsin mi?') && onDelete(a)}><X /></button>}
+            </div>
+          ))}
+        </div>
+      )}
+      {docs.map((a) => (
+        <a key={a.id} className="att-doc" href={fileUrl(a.id, true)}>
+          <FileText /> <span>{a.fileName}</span> <Download />
+        </a>
+      ))}
+      <Lightbox zoom={zoom} onClose={() => setZoom(null)} />
+    </div>
+  );
+}
+
 export function Gallery({ items, editable }: { items: Attachment[]; editable?: boolean }) {
   const { manager, user } = useAuth();
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<Zoom>(null);
   const toggle = useAction((a: Attachment) => api(`/files/${a.id}`, { method: 'PATCH', body: { customerVisible: !a.customerVisible } }), { success: 'Görünürlük güncellendi' });
   const del = useAction((a: Attachment) => api(`/files/${a.id}`, { method: 'DELETE' }), { success: 'Dosya silindi' });
-  const images = items.filter((i) => i.mimeType.startsWith('image/'));
-  const docs = items.filter((i) => !i.mimeType.startsWith('image/'));
+  const images = items.filter(isMedia);
+  const docs = items.filter((i) => !isMedia(i));
   if (!items.length) return <Empty title="Henüz dosya yok" icon={<Camera />} />;
   return (
     <>
@@ -85,7 +140,7 @@ export function Gallery({ items, editable }: { items: Attachment[]; editable?: b
         <div className="photo-grid">
           {images.map((a) => (
             <div className="photo" key={a.id}>
-              <img src={fileUrl(a.id)} alt={a.caption ?? a.fileName} loading="lazy" onClick={() => setZoom(fileUrl(a.id))} />
+              <Thumb a={a} onOpen={() => setZoom({ url: fileUrl(a.id), video: a.mimeType.startsWith('video/') })} />
               <div className="ph-tag row" style={{ gap: 4 }}>
                 {a.tag === 'BEFORE' && <Badge tone="navy" plain>ÖNCE</Badge>}
                 {a.tag === 'AFTER' && <Badge tone="ok" plain>SONRA</Badge>}
@@ -122,11 +177,7 @@ export function Gallery({ items, editable }: { items: Attachment[]; editable?: b
           ))}
         </div>
       )}
-      {zoom && (
-        <div className="lightbox" onClick={() => setZoom(null)}>
-          <img src={zoom} alt="" />
-        </div>
-      )}
+      <Lightbox zoom={zoom} onClose={() => setZoom(null)} />
     </>
   );
 }

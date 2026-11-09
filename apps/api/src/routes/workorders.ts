@@ -137,15 +137,17 @@ workOrdersRouter.get(
       },
     });
     const attachments = await attachmentsFor(req.user, 'WORK_ORDER', wo.id);
+    const commentFiles = await attachmentsFor(req.user, 'COMMENT', wo.comments.map((c) => c.id));
     if (req.user.isStaff) {
       const showCost = can(req.user, 'finance.view');
       return res.json({
         ...wo,
         materials: wo.materials.map((m) => (showCost ? m : { ...m, unitCost: undefined })),
         attachments,
+        commentFiles,
       });
     }
-    res.json({ ...sanitizeWorkOrderForClient(wo), attachments });
+    res.json({ ...sanitizeWorkOrderForClient(wo), attachments, commentFiles });
   }),
 );
 
@@ -292,7 +294,9 @@ workOrdersRouter.post(
   requirePerm('workorders.view'),
   ah<AuthedRequest>(async (req, res) => {
     const wo = await loadAccessible(req.user, req.params.id);
-    const { body, internal } = z.object({ body: z.string().trim().min(1), internal: z.boolean().optional() }).parse(req.body);
+    // Metin boş olabilir: yalnızca fotoğraf / video / belge içeren yorumlar (ekler ayrıca COMMENT olarak yüklenir)
+    const { body, internal, withFiles } = z.object({ body: z.string().trim().default(''), internal: z.boolean().optional(), withFiles: z.boolean().optional() }).parse(req.body);
+    if (!body && !withFiles) throw badRequest('Yorum boş olamaz');
     const c = await prisma.workOrderComment.create({
       data: { workOrderId: wo.id, userId: req.user.id, body, internal: req.user.isStaff ? (internal ?? true) : false },
       include: { user: { select: { id: true, name: true } } },
@@ -301,7 +305,7 @@ workOrdersRouter.post(
       await notify(await managerIds(), {
         type: 'CUSTOMER_REQUEST',
         title: `Müşteri mesajı: ${wo.number}`,
-        body,
+        body: body || 'Müşteri dosya ekledi',
         link: `/work-orders/${wo.id}`,
         entityType: 'WorkOrder',
         entityId: wo.id,

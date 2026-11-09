@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, ClipboardList, MapPin, Anchor, Wrench, AlertTriangle, Hammer, ChevronRight, CheckCircle2, MessageSquarePlus, Receipt } from 'lucide-react';
+import { CalendarClock, ClipboardList, MapPin, Anchor, Wrench, AlertTriangle, Hammer, ChevronRight, CheckCircle2, MessageSquarePlus, Receipt, Camera, Ship } from 'lucide-react';
 import { MAINTENANCE_CATEGORY_KEYS, PRIORITIES } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, fileUrl, uploadFiles } from '../lib/api';
 import { Badge, Card, DataTable, Empty, Field, Loading, PageHeader, Progress, Seg, StatusBadge } from '../components/ui';
-import { HeroPlaceholder } from '../components/brand';
+import { VesselCover } from '../components/VesselCover';
 import { fmtDate, relTime } from '../lib/format';
 import { CATEGORY_LABELS, CATEGORY_SHORT, MAINTENANCE_STATUS_LABELS, MAINT_TONE, PRIORITY_LABELS, PROJECT_STATUS_LABELS, PROJECT_TONE, WORK_ORDER_STATUS_LABELS, WO_TONE } from '../lib/labels';
 
@@ -26,37 +26,45 @@ export function PortalHome() {
   const maint = useApi<any>(vesselId ? '/maintenance' : null, { vesselId, upcoming: 'true', pageSize: 5 }).data?.items ?? [];
   const projects = useApi<any>(vesselId ? '/projects' : null, { vesselId }).data?.items ?? [];
   const quotes = useApi<any>(can('quotes.respond') ? '/quotes' : null, { status: 'SENT' }).data?.items ?? [];
+  const uploadCover = useAction((files: File[]) => uploadFiles('VESSEL', vesselId!, files, { caption: 'Kapak' }), { success: 'Tekne fotoğrafı güncellendi' });
   if (!vessels) return <Loading />;
   if (!vessels.length) return <Card><Empty title="Hesabınıza bağlı tekne bulunmuyor" text="Lütfen Nexus Marine operasyon ekibiyle iletişime geçin." /></Card>;
-  const cover = photos.find((p) => p.mimeType.startsWith('image/') && p.entityType === 'VESSEL') ?? photos.find((p) => p.mimeType.startsWith('image/'));
+  // Kapak yalnızca tekneye yüklenen fotoğraftır; iş emri fotoğrafları kapak olmaz
+  const cover = photos.find((p) => p.mimeType.startsWith('image/') && p.entityType === 'VESSEL');
   const open = wos.filter((w: any) => !['CLOSED', 'CANCELLED', 'PUBLISHED'].includes(w.status));
   const done = wos.filter((w: any) => ['PUBLISHED', 'CLOSED'].includes(w.status));
   const current = open.find((w: any) => w.status === 'IN_PROGRESS') ?? open[0];
 
   return (
     <div className="stack">
-      <div className="row-wrap">
-        <div>
-          <div className="small muted">Hoş geldiniz</div>
-          <h1>{user?.name}</h1>
-        </div>
-        <span className="spacer" />
-        {vessels.length > 1 && (
-          <select className="select" style={{ width: 240 }} value={vesselId} onChange={(e) => setSel(e.target.value)}>
-            {vessels.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
-        )}
-      </div>
       {!v ? <Loading /> : (
         <>
-          <section className="vessel-hero" style={{ minHeight: 280 }}>
-            {cover ? <img className="bgimg" src={fileUrl(cover.id)} alt={v.name} /> : <HeroPlaceholder />}
+          <section className="vessel-hero portal-hero">
+            <VesselCover vessel={v} photoUrl={cover ? fileUrl(cover.id) : null} />
             <div className="shade" />
+            <div className="ph-top">
+              <div className="ph-welcome">
+                <label className="ph-thumb" title="Tekne fotoğrafını değiştir">
+                  {cover ? <img src={fileUrl(cover.id)} alt={v.name} /> : <Ship size={22} />}
+                  <i>{uploadCover.isPending ? <span className="spin" /> : <Camera size={12} />}</i>
+                  <input type="file" accept="image/*" hidden disabled={uploadCover.isPending} onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; if (f.length) uploadCover.mutate(f); }} />
+                </label>
+                <div>
+                  <span>Hoş geldiniz, {user?.name}</span>
+                  <b>{v.name}</b>
+                </div>
+              </div>
+              {vessels.length > 1 && (
+                <select className="select" aria-label="Tekne seçin" value={vesselId} onChange={(e) => setSel(e.target.value)}>
+                  {vessels.map((x: any) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </select>
+              )}
+            </div>
             <div className="vh-body">
-              <Badge tone="navy" plain>{v.type}</Badge>
+              {v.type && <Badge tone="navy" plain>{v.type}</Badge>}
               <h1 className="mt-1">{v.name}</h1>
               <div className="row-wrap mt-1" style={{ color: '#c9d9ea', gap: 16 }}>
-                <span className="row" style={{ gap: 6 }}><Anchor size={15} /> {[v.make, v.model].filter(Boolean).join(' ')}</span>
+                <span className="row" style={{ gap: 6 }}><Anchor size={15} /> {[v.make, v.model].filter(Boolean).join(' ')}{v.year ? ` · ${v.year}` : ''}{v.lengthM ? ` · ${String(v.lengthM).replace('.', ',')} m` : ''}</span>
                 <span className="row" style={{ gap: 6 }}><MapPin size={15} /> {v.marina} {v.berth && `· ${v.berth}`}</span>
               </div>
               <div className="row-wrap mt-2">
@@ -118,22 +126,15 @@ export function PortalHome() {
             </Card>
           )}
 
-          <div className="grid g-2">
-            <Card title="Son tamamlanan servisler" pad={false}>
-              {done.length === 0 && <Empty />}
-              {done.slice(0, 5).map((w: any) => (
-                <div key={w.id} className="list-item clickable" onClick={() => nav(`/work-orders/${w.id}`)}>
-                  <CheckCircle2 size={18} color="var(--ok)" />
-                  <div className="grow"><div className="strong truncate">{w.title}</div><div className="xs muted">{fmtDate(w.finishedAt ?? w.publishedAt)}</div></div>
-                </div>
-              ))}
-            </Card>
-            <Card title="Onaylı fotoğraflar">
-              {photos.filter((p) => p.mimeType.startsWith('image/')).length === 0 ? <Empty title="Henüz paylaşılan fotoğraf yok" /> : (
-                <div className="photo-grid">{photos.filter((p) => p.mimeType.startsWith('image/')).slice(0, 6).map((p) => <div className="photo" key={p.id}><img src={fileUrl(p.id)} alt="" loading="lazy" /></div>)}</div>
-              )}
-            </Card>
-          </div>
+          <Card title="Son tamamlanan servisler" pad={false}>
+            {done.length === 0 && <Empty />}
+            {done.slice(0, 5).map((w: any) => (
+              <div key={w.id} className="list-item clickable" onClick={() => nav(`/work-orders/${w.id}`)}>
+                <CheckCircle2 size={18} color="var(--ok)" />
+                <div className="grow"><div className="strong truncate">{w.title}</div><div className="xs muted">{fmtDate(w.finishedAt ?? w.publishedAt)}</div></div>
+              </div>
+            ))}
+          </Card>
         </>
       )}
     </div>
@@ -163,7 +164,16 @@ export function PortalMaintenance() {
   const progress = useApi<any>('/work-orders', { group: 'open', pageSize: 100 }).data?.items ?? [];
   return (
     <div>
-      <PageHeader title="Bakımlar" sub="Planlı bakımlar, devam eden işlemler ve bakım geçmişi" actions={<Seg value={tab} onChange={setTab} options={[['upcoming', 'Planlı ve devam eden'], ['history', 'Bakım geçmişi']]} />} />
+      <PageHeader title="Bakımlar" sub="Planlı bakımlar, devam eden işlemler ve bakım geçmişi" />
+      <div className="request-cta mb-2">
+        <div className="rc-ic"><MessageSquarePlus /></div>
+        <div className="rc-txt"><b>Teknenizin bir ihtiyacı mı var?</b><span>Servis talebi oluşturun ya da bir arızayı bildirin, ekibimiz hemen planlasın.</span></div>
+        <div className="rc-act">
+          <button className="btn btn-primary" onClick={() => nav('/request')}><MessageSquarePlus /> Servis talebi</button>
+          <button className="btn btn-light" onClick={() => nav('/request?type=fault')}><AlertTriangle /> Arıza bildir</button>
+        </div>
+      </div>
+      <div className="mb-2"><Seg value={tab} onChange={setTab} options={[['upcoming', 'Planlı ve devam eden'], ['history', 'Bakım geçmişi']]} /></div>
       {tab === 'upcoming' ? (
         <div className="stack">
           <Card title="Devam eden işlemler" pad={false}>

@@ -13,7 +13,7 @@ export const filesRouter = Router();
 
 fs.mkdirSync(config.storageDir, { recursive: true });
 
-const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif)|application\/pdf|application\/vnd\.openxmlformats-officedocument\..+|application\/msword|text\/plain)$/;
+const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif|gif)|video\/(mp4|quicktime|webm|3gpp|x-m4v|x-matroska)|application\/vnd\.ms-excel|application\/pdf|application\/vnd\.openxmlformats-officedocument\..+|application\/msword|text\/plain)$/;
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -28,7 +28,7 @@ const upload = multer({
   fileFilter: (_req, file, cb) => cb(null, ALLOWED.test(file.mimetype)),
 });
 
-export const ENTITY_TYPES = ['WORK_ORDER', 'INSPECTION_ITEM', 'VESSEL', 'PROJECT', 'PHASE', 'REPORT', 'DOCUMENT', 'FAULT'] as const;
+export const ENTITY_TYPES = ['WORK_ORDER', 'INSPECTION_ITEM', 'VESSEL', 'PROJECT', 'PHASE', 'REPORT', 'DOCUMENT', 'FAULT', 'COMMENT'] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
 
 /** Varlık için tekne kimliğini sunucu tarafında çözer ve yükleme yetkisini doğrular. */
@@ -48,7 +48,11 @@ async function resolveEntity(user: AuthUser, type: EntityType, id: string): Prom
       return it.inspection.vesselId;
     }
     case 'VESSEL':
-      if (!can(user, 'vessels.manage')) throw forbidden();
+      // Tekne sahibi kendi teknesine kapak fotoğrafı yükleyebilir
+      if (!can(user, 'vessels.manage')) {
+        if (user.isStaff) throw forbidden();
+        assertVesselAccess(user, id);
+      }
       return id;
     case 'PROJECT':
     case 'PHASE': {
@@ -71,6 +75,14 @@ async function resolveEntity(user: AuthUser, type: EntityType, id: string): Prom
       const d = await prisma.document.findUnique({ where: { id }, select: { vesselId: true } });
       if (!d) throw notFound();
       return d.vesselId ?? '';
+    }
+    case 'COMMENT': {
+      // Yorum ekleri: yalnızca yorumu yazan kişi (veya yönetici) ekleyebilir
+      const c = await prisma.workOrderComment.findUnique({ where: { id }, select: { userId: true, workOrder: { select: { vesselId: true } } } });
+      if (!c) throw notFound();
+      assertVesselAccess(user, c.workOrder.vesselId);
+      if (c.userId !== user.id && !user.isManager) throw forbidden();
+      return c.workOrder.vesselId;
     }
     case 'FAULT': {
       const f = await prisma.fault.findUnique({ where: { id }, select: { vesselId: true } });
@@ -99,7 +111,12 @@ filesRouter.post(
       if (!files.length) throw badRequest('Desteklenen bir dosya seçilmedi (JPG, PNG, WEBP, HEIC, PDF, DOCX)');
       const vesselId = await resolveEntity(req.user, meta.entityType, meta.entityId);
       // Müşteriye görünürlük yalnızca yönetici onayıyla
-      const customerVisible = req.user.isManager ? meta.customerVisible === 'true' : !req.user.isStaff;
+      let customerVisible = req.user.isManager ? meta.customerVisible === 'true' : !req.user.isStaff;
+      // Yorum eki, yorumun görünürlüğünü izler (müşteriye açık yorum → ek de açık)
+      if (meta.entityType === 'COMMENT') {
+        const c = await prisma.workOrderComment.findUnique({ where: { id: meta.entityId }, select: { internal: true } });
+        customerVisible = !c?.internal;
+      }
       const created = await prisma.$transaction(
         files.map((f) =>
           prisma.attachment.create({
@@ -174,7 +191,26 @@ filesRouter.get(
     if (!full.startsWith(config.storageDir) || !fs.existsSync(full)) throw notFound('Dosya');
     res.setHeader('Content-Type', a.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Disposition', `${req.query.download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(a.fileName)}`);
+    // Video oynatma (özellikle iOS Safari) için HTTP Range desteği
+    const size = (await fs.promises.stat(full)).size;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? Number(m[1]) : size - Number(m[2]);
+      let end = m[1] && m[2] ? Number(m[2]) : size - 1;
+      start = Math.max(0, start);
+      end = Math.min(end, size - 1);
+      if (start > end) {
+        res.status(416).setHeader('Content-Range', `bytes */${size}`);
+        return void res.end();
+      }
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+      res.setHeader('Content-Length', String(end - start + 1));
+      return void fs.createReadStream(full, { start, end }).pipe(res);
+    }
+    res.setHeader('Content-Length', String(size));
     fs.createReadStream(full).pipe(res);
   }),
 );
