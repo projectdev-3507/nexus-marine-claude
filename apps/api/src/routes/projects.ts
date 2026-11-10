@@ -267,7 +267,7 @@ projectsRouter.post(
       },
     });
     if (!staff) {
-      await notify(await managerIds(), { type: 'CUSTOMER_REQUEST', title: `Ek iş talebi: ${p.name}`, body: cr.title, link: `/projects/${p.id}`, entityType: 'Project', entityId: p.id, dedupeKey: `cr-${cr.id}` });
+      await notify(await managerIds(), { type: 'CUSTOMER_REQUEST', title: `Ek iş talebi: ${p.name}`, body: cr.title, link: `/projects/${p.id}`, entityType: 'Project', entityId: p.id, dedupeKey: `cr-${cr.id}`, fromClient: true });
     }
     res.status(201).json(cr);
   }),

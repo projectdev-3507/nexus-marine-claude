@@ -132,6 +132,7 @@ quotesRouter.post(
     });
     await notify(await managerIds(), {
       type: 'QUOTE_RESPONSE',
+      fromClient: true,
       title: `Teklif ${decision === 'APPROVED' ? 'onaylandı' : 'reddedildi'}: ${q.number}`,
       body: `${q.title}${note ? ` — ${note}` : ''}`,
       link: `/quotes/${q.id}`,

@@ -198,6 +198,7 @@ workOrdersRouter.post(
         entityType: 'WorkOrder',
         entityId: wo.id,
         dedupeKey: `wo-created-${wo.id}`,
+        fromClient: !req.user.isStaff,
       },
       req.user.id,
     );
@@ -310,6 +311,7 @@ workOrdersRouter.post(
       [...staffTargets, ...clientTargets],
       {
         type: 'NEW_COMMENT',
+        fromClient: !req.user.isStaff,
         title: `${req.user.name} yorum yaptı · ${wo.number}`,
         body: `${wo.title}: ${preview}`,
         link: `/work-orders/${wo.id}`,

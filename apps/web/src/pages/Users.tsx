@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Plus, KeyRound, ShieldCheck } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Plus, KeyRound, ShieldCheck, Ship, Anchor, HardHat, Briefcase, ChevronLeft, ChevronRight, Check, X } from 'lucide-react';
 import { ROLES, ROLE_PERMISSIONS, PERMISSIONS, type Role } from '@nexus/shared';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { api } from '../lib/api';
 import { Avatar, Badge, Card, DataTable, Field, Modal, PageHeader, Pager, SearchInput, Tabs, type Column } from '../components/ui';
-import { useCustomerOptions, useVesselOptions } from '../lib/lookups';
+import { useVesselOptions } from '../lib/lookups';
 import { relTime } from '../lib/format';
 import { ROLE_LABELS } from '../lib/labels';
 
@@ -26,7 +27,10 @@ export default function Users() {
 function UserList() {
   const ls = useListState();
   const [role, setRole] = useState('');
-  const [form, setForm] = useState<any | null>(null);
+  const [sp, setSp] = useSearchParams();
+  const [form, setFormState] = useState<any | null>(sp.get('new') ? {} : null);
+  const setForm = (v: any) => { setFormState(v); if (!v && sp.get('new')) setSp({}, { replace: true }); };
+  useEffect(() => { if (sp.get('new')) setFormState((f: any) => f ?? {}); }, [sp]);
   const [temp, setTemp] = useState<string | null>(null);
   const { data, isLoading } = useApi<any>('/users', { ...ls.query, role: role || undefined });
   const reset = useAction((id: string) => api(`/users/${id}/reset-password`, { body: {} }), { onSuccess: (r) => setTemp(r.temporaryPassword) });
@@ -45,12 +49,12 @@ function UserList() {
           <SearchInput value={ls.q} onChange={ls.setQ} />
           <select className="select sm" style={{ width: 200 }} value={role} onChange={(e) => setRole(e.target.value)}><option value="">Tüm roller</option>{ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}</select>
           <span className="spacer" />
-          <button className="btn btn-primary btn-sm" onClick={() => setForm({})}><Plus /> Yeni kullanıcı</button>
+          <button className="btn btn-primary btn-sm" onClick={() => setForm({})}><Plus /> Yeni kullanıcı / müşteri</button>
         </div>
         <DataTable columns={cols} rows={data?.items ?? []} loading={isLoading} onRowClick={(u) => setForm(u)} />
         {data && <Pager page={ls.page} pageSize={25} total={data.total} onPage={ls.setPage} />}
       </Card>
-      {form && <UserForm initial={form} onClose={() => setForm(null)} onTemp={setTemp} />}
+      {form && <UserWizard initial={form} onClose={() => setForm(null)} onTemp={setTemp} />}
       <Modal open={!!temp} onClose={() => setTemp(null)} title="Geçici şifre" footer={<button className="btn btn-primary" onClick={() => setTemp(null)}>Tamam</button>}>
         <p className="muted mb-2">Bu şifreyi kullanıcıya güvenli bir kanaldan iletin. Bu pencere kapandıktan sonra tekrar görüntülenemez.</p>
         <div className="input mono" style={{ display: 'flex', alignItems: 'center', fontSize: 18, fontWeight: 700, letterSpacing: '.05em' }}>{temp}</div>
@@ -59,41 +63,175 @@ function UserList() {
   );
 }
 
-function UserForm({ initial, onClose, onTemp }: { initial: any; onClose: () => void; onTemp: (p: string) => void }) {
-  const customers = useCustomerOptions();
+/** Kullanıcı türleri — sihirbazın ilk adımı */
+const KINDS: Array<{ role: Role; title: string; text: string; icon: typeof Ship }> = [
+  { role: 'OWNER', title: 'Tekne sahibi (müşteri)', text: 'Müşteri portalına girer, kendi teknelerini, bakımları ve teklifleri görür.', icon: Anchor },
+  { role: 'CAPTAIN', title: 'Kaptan', text: 'Sorumlu olduğu teknelerin bakım ve servislerini takip eder, talep açar.', icon: Ship },
+  { role: 'TECHNICIAN', title: 'Teknisyen', text: 'Kendisine atanan işleri görür, başlatır, fotoğraf ekler, bitirir.', icon: HardHat },
+  { role: 'OPERATIONS_MANAGER', title: 'Operasyon yöneticisi', text: 'İş emirlerini planlar, teknisyen atar, işleri onaylar.', icon: Briefcase },
+  { role: 'SUPER_ADMIN', title: 'Süper admin', text: 'Tüm yetkiler: kullanıcılar, ayarlar ve finans dahil.', icon: ShieldCheck },
+];
+const primaryRole = (roles: Role[] = []): Role => (['SUPER_ADMIN', 'OPERATIONS_MANAGER', 'TECHNICIAN', 'OWNER', 'CAPTAIN'] as Role[]).find((r) => roles.includes(r)) ?? 'TECHNICIAN';
+const BLANK_VESSEL = { name: '', type: 'Motoryat', make: '', model: '', year: '', lengthM: '', marina: '', berth: '' };
+
+function UserWizard({ initial, onClose, onTemp }: { initial: any; onClose: () => void; onTemp: (p: string) => void }) {
+  const editing = !!initial.id;
+  const detail = useApi<any>(editing ? `/users/${initial.id}/setup` : null).data;
   const vessels = useVesselOptions();
-  const [f, setF] = useState<any>({ email: '', name: '', phone: '', title: '', roles: ['TECHNICIAN'], customerId: '', isActive: true, password: '', ...initial, vesselLinks: initial.vesselLinks?.map((l: any) => ({ vesselId: l.vesselId ?? l.vessel?.id, relation: l.relation })) ?? [] });
-  const [link, setLink] = useState({ vesselId: '', relation: 'CAPTAIN' });
+  const [step, setStep] = useState(editing ? 1 : 0);
+  const [f, setF] = useState<any>(null);
+  const [q, setQ] = useState('');
+  const [nv, setNv] = useState<any | null>(null);
+
+  // Düzenlemede mevcut bilgileri yükle
+  if (!f && (!editing || detail)) {
+    const d = detail ?? {};
+    const role = editing ? primaryRole(d.roles) : 'OWNER';
+    setF({
+      role, name: d.name ?? '', email: d.email ?? '', phone: d.phone ?? '', title: d.title ?? '', password: '', isActive: d.isActive ?? true,
+      company: d.company ?? '', taxNumber: d.taxNumber ?? '', address: d.address ?? '',
+      vesselIds: role === 'OWNER' ? d.ownedVesselIds ?? [] : d.captainVesselIds ?? [], newVessels: [],
+    });
+  }
   const save = useAction(() => {
-    const body: any = { email: f.email, name: f.name, phone: f.phone || null, title: f.title || null, roles: f.roles, customerId: f.customerId || null, isActive: f.isActive, vesselLinks: f.vesselLinks };
+    const client = f.role === 'OWNER' || f.role === 'CAPTAIN';
+    const body: any = {
+      id: initial.id, role: f.role, name: f.name, email: f.email, phone: f.phone || null, title: f.title || null, isActive: f.isActive,
+      company: f.role === 'OWNER' ? f.company || null : null, taxNumber: f.role === 'OWNER' ? f.taxNumber || null : null, address: f.role === 'OWNER' ? f.address || null : null,
+      vesselIds: client ? f.vesselIds : [], newVessels: client ? f.newVessels.map((v: any) => ({ ...v, year: v.year || null, lengthM: v.lengthM || null })) : [],
+    };
     if (f.password) body.password = f.password;
-    return f.id ? api(`/users/${f.id}`, { method: 'PUT', body }) : api('/users', { body });
-  }, { success: 'Kullanıcı kaydedildi', onSuccess: (r) => { onClose(); if (r.temporaryPassword) onTemp(r.temporaryPassword); } });
-  const toggleRole = (r: Role) => setF({ ...f, roles: f.roles.includes(r) ? f.roles.filter((x: Role) => x !== r) : [...f.roles, r] });
+    return api('/users/setup', { body });
+  }, { success: editing ? 'Kullanıcı güncellendi' : 'Kullanıcı oluşturuldu', onSuccess: (r) => { onClose(); if (r.temporaryPassword) onTemp(r.temporaryPassword); } });
+
+  if (!f) return <Modal open onClose={onClose} title="Yükleniyor…"><div className="muted">Bilgiler alınıyor…</div></Modal>;
+  const kind = KINDS.find((k) => k.role === f.role)!;
+  const client = f.role === 'OWNER' || f.role === 'CAPTAIN';
+  const steps = ['Kullanıcı türü', 'Kişi bilgileri', ...(client ? ['Tekneler'] : [])];
+  const last = step === steps.length - 1;
+  const infoOk = f.name.trim().length >= 2 && /\S+@\S+\.\S+/.test(f.email) && (!f.password || f.password.length >= 8);
+  const canNext = step === 0 || (step === 1 ? infoOk : true);
+  const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
+  const toggleVessel = (id: string) => setF({ ...f, vesselIds: f.vesselIds.includes(id) ? f.vesselIds.filter((x: string) => x !== id) : [...f.vesselIds, id] });
+  const filtered = vessels.filter((v: any) => !q || `${v.name} ${v.marina ?? ''} ${v.owner?.name ?? ''}`.toLocaleLowerCase('tr').includes(q.toLocaleLowerCase('tr')));
+  const selected = vessels.filter((v) => f.vesselIds.includes(v.id));
+
   return (
-    <Modal open onClose={onClose} size="lg" title={f.id ? f.name : 'Yeni kullanıcı'} footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.email || !f.name || !f.roles.length} onClick={() => save.mutate(undefined)}>Kaydet</button></>}>
-      <div className="form-grid">
-        <Field label="Ad soyad"><input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label="E-posta"><input className="input" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
-        <Field label="Telefon"><input className="input" value={f.phone ?? ''} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
-        <Field label="Unvan"><input className="input" value={f.title ?? ''} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
-        <Field label="Roller (birden fazla seçilebilir)" full>
-          <div className="row-wrap">{ROLES.map((r) => <label key={r} className="checkbox small" style={{ border: `1.5px solid ${f.roles.includes(r) ? 'var(--marine)' : 'var(--border)'}`, borderRadius: 9, padding: '6px 10px' }}><input type="checkbox" checked={f.roles.includes(r)} onChange={() => toggleRole(r)} />{ROLE_LABELS[r]}</label>)}</div>
-        </Field>
-        {f.roles.includes('OWNER') && <Field label="Bağlı müşteri kaydı *" hint="Tekne sahibi, bu müşteriye ait tüm tekneleri görür."><select className="select" value={f.customerId ?? ''} onChange={(e) => setF({ ...f, customerId: e.target.value })}><option value="">—</option>{customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
-        <Field label={f.id ? 'Yeni şifre (boş bırakılabilir)' : 'Şifre (boşsa geçici şifre üretilir)'}><input className="input" type="password" value={f.password ?? ''} onChange={(e) => setF({ ...f, password: e.target.value })} autoComplete="new-password" /></Field>
-        <Field label="Tekne ilişkileri" full hint="Kaptan ve mürettebat yalnızca ilişkilendirildiği tekneleri görür.">
-          <div className="stack" style={{ gap: 6 }}>
-            {f.vesselLinks.map((l: any, i: number) => <div key={i} className="row small"><Badge tone="info" plain>{l.relation === 'CAPTAIN' ? 'Kaptan' : l.relation === 'OWNER' ? 'Sahip' : 'Mürettebat'}</Badge>{vessels.find((v) => v.id === l.vesselId)?.name}<span className="spacer" /><button className="btn btn-sm btn-ghost" onClick={() => setF({ ...f, vesselLinks: f.vesselLinks.filter((_: any, j: number) => j !== i) })}>Kaldır</button></div>)}
-            <div className="row">
-              <select className="select sm" value={link.vesselId} onChange={(e) => setLink({ ...link, vesselId: e.target.value })}><option value="">Tekne seçin</option>{vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
-              <select className="select sm" style={{ width: 150 }} value={link.relation} onChange={(e) => setLink({ ...link, relation: e.target.value })}><option value="CAPTAIN">Kaptan</option><option value="OWNER">Ek sahip</option><option value="CREW">Mürettebat</option></select>
-              <button className="btn btn-sm" disabled={!link.vesselId} onClick={() => { setF({ ...f, vesselLinks: [...f.vesselLinks, link] }); setLink({ vesselId: '', relation: 'CAPTAIN' }); }}><Plus /></button>
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={editing ? `${f.name || 'Kullanıcı'} · düzenle` : 'Yeni kullanıcı'}
+      footer={
+        <>
+          {step > 0 ? <button className="btn" onClick={() => setStep(step - 1)}><ChevronLeft /> Geri</button> : <button className="btn" onClick={onClose}>Vazgeç</button>}
+          <span className="spacer" />
+          {last
+            ? <button className="btn btn-primary" disabled={!infoOk || save.isPending} onClick={() => save.mutate(undefined)}><Check /> {editing ? 'Kaydet' : 'Kullanıcıyı oluştur'}</button>
+            : <button className="btn btn-primary" disabled={!canNext} onClick={() => setStep(step + 1)}>İleri <ChevronRight /></button>}
+        </>
+      }
+    >
+      <div className="wiz-steps">
+        {steps.map((s, i) => (
+          <button key={s} className={`${i === step ? 'active' : ''}${i < step ? ' done' : ''}`} disabled={i > step && !(i === 2 && infoOk)} onClick={() => (i <= step || infoOk) && setStep(i)}>
+            <i>{i < step ? <Check size={12} /> : i + 1}</i> {s}
+          </button>
+        ))}
+      </div>
+
+      {step === 0 && (
+        <div className="kind-grid">
+          {KINDS.map((k) => (
+            <button key={k.role} className={`kind${f.role === k.role ? ' active' : ''}`} onClick={() => { setF({ ...f, role: k.role, vesselIds: k.role === f.role ? f.vesselIds : [] }); }} onDoubleClick={() => setStep(1)}>
+              <span className="kind-ic"><k.icon /></span>
+              <b>{k.title}</b>
+              <span>{k.text}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {step === 1 && (
+        <div className="stack">
+          <div className="kind-chip"><kind.icon size={16} /> {kind.title}{editing && <button className="link" onClick={() => setStep(0)}>Değiştir</button>}</div>
+          <div className="form-grid">
+            <Field label="Ad soyad *"><input className="input" value={f.name} onChange={set('name')} autoFocus /></Field>
+            <Field label="E-posta *" hint="Giriş için kullanılır."><input className="input" type="email" value={f.email} onChange={set('email')} /></Field>
+            <Field label="Telefon"><input className="input" value={f.phone} onChange={set('phone')} placeholder="+90 5xx xxx xx xx" /></Field>
+            {f.role === 'OWNER'
+              ? <Field label="Firma (varsa)" hint="Boşsa müşteri kaydı kişi adıyla açılır."><input className="input" value={f.company} onChange={set('company')} /></Field>
+              : <Field label="Unvan"><input className="input" value={f.title} onChange={set('title')} placeholder={f.role === 'TECHNICIAN' ? 'Ör. Elektrik Teknisyeni' : f.role === 'CAPTAIN' ? 'Ör. Kaptan' : ''} /></Field>}
+            {f.role === 'OWNER' && (
+              <>
+                <Field label="Vergi no"><input className="input" value={f.taxNumber} onChange={set('taxNumber')} /></Field>
+                <Field label="Adres"><input className="input" value={f.address} onChange={set('address')} /></Field>
+              </>
+            )}
+            <Field label={editing ? 'Yeni şifre (boş bırakılabilir)' : 'Şifre (boş bırakırsanız geçici şifre üretilir)'} hint="En az 8 karakter."><input className="input" type="password" value={f.password} onChange={set('password')} autoComplete="new-password" /></Field>
+            {editing && <label className="checkbox" style={{ alignSelf: 'end' }}><input type="checkbox" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} /> Hesap aktif</label>}
+          </div>
+        </div>
+      )}
+
+      {step === 2 && client && (
+        <div className="stack">
+          <div className="notice">
+            <Ship />
+            <div>{f.role === 'OWNER' ? 'Bu müşterinin sahibi olduğu tekneleri seçin veya yeni tekne ekleyin. Birden fazla tekne seçebilirsiniz.' : 'Bu kaptanın sorumlu olduğu tekneleri seçin veya yeni tekne ekleyin. Birden fazla tekne seçebilirsiniz.'}</div>
+          </div>
+
+          {(selected.length > 0 || f.newVessels.length > 0) && (
+            <div className="sel-vessels">
+              {selected.map((v) => <span key={v.id} className="sv"><Ship size={13} /> {v.name}<button onClick={() => toggleVessel(v.id)} aria-label="Kaldır"><X size={12} /></button></span>)}
+              {f.newVessels.map((v: any, i: number) => <span key={`n${i}`} className="sv new"><Plus size={13} /> {v.name} <em>yeni</em><button onClick={() => setF({ ...f, newVessels: f.newVessels.filter((_: any, j: number) => j !== i) })} aria-label="Kaldır"><X size={12} /></button></span>)}
+            </div>
+          )}
+
+          {nv ? (
+            <div className="card card-pad new-vessel">
+              <b className="mb-1" style={{ display: 'block' }}>Yeni tekne</b>
+              <div className="form-grid">
+                <Field label="Tekne adı *"><input className="input" value={nv.name} onChange={(e) => setNv({ ...nv, name: e.target.value })} placeholder="Ör. M/Y DENİZ" autoFocus /></Field>
+                <Field label="Tip"><select className="select" value={nv.type} onChange={(e) => setNv({ ...nv, type: e.target.value })}>{['Motoryat', 'Yelkenli', 'Katamaran', 'Gulet', 'Süperyat'].map((t) => <option key={t}>{t}</option>)}</select></Field>
+                <Field label="Marka"><input className="input" value={nv.make} onChange={(e) => setNv({ ...nv, make: e.target.value })} placeholder="Ör. Princess" /></Field>
+                <Field label="Model"><input className="input" value={nv.model} onChange={(e) => setNv({ ...nv, model: e.target.value })} placeholder="Ör. Y85" /></Field>
+                <Field label="Yıl"><input className="input" type="number" value={nv.year} onChange={(e) => setNv({ ...nv, year: e.target.value })} /></Field>
+                <Field label="Boy (m)"><input className="input" type="number" step="0.1" value={nv.lengthM} onChange={(e) => setNv({ ...nv, lengthM: e.target.value })} /></Field>
+                <Field label="Marina"><input className="input" value={nv.marina} onChange={(e) => setNv({ ...nv, marina: e.target.value })} /></Field>
+                <Field label="Bağlama yeri"><input className="input" value={nv.berth} onChange={(e) => setNv({ ...nv, berth: e.target.value })} /></Field>
+              </div>
+              <div className="row mt-2" style={{ justifyContent: 'flex-end' }}>
+                <button className="btn btn-sm" onClick={() => setNv(null)}>Vazgeç</button>
+                <button className="btn btn-sm btn-primary" disabled={!nv.name.trim()} onClick={() => { setF({ ...f, newVessels: [...f.newVessels, nv] }); setNv(null); }}><Plus /> Listeye ekle</button>
+              </div>
+            </div>
+          ) : (
+            <button className="btn add-vessel" onClick={() => setNv({ ...BLANK_VESSEL })}><Plus /> Yeni tekne ekle</button>
+          )}
+
+          <div className="vessel-pick">
+            <div className="vp-head"><b>Kayıtlı tekneler</b><SearchInput value={q} onChange={setQ} placeholder="Tekne, marina veya sahip ara…" /></div>
+            <div className="vp-list">
+              {filtered.map((v: any) => {
+                const on = f.vesselIds.includes(v.id);
+                const otherOwner = f.role === 'OWNER' && v.owner && !(detail?.ownedVesselIds ?? []).includes(v.id);
+                return (
+                  <label key={v.id} className={`vp-item${on ? ' on' : ''}`}>
+                    <input type="checkbox" checked={on} onChange={() => toggleVessel(v.id)} />
+                    <div className="grow">
+                      <b>{v.name}</b>
+                      <span>{[v.marina, v.owner?.name && `Sahibi: ${v.owner.name}`].filter(Boolean).join(' · ') || '—'}</span>
+                      {on && otherOwner && <small className="warn-text">Sahibi bu müşteriye geçecek</small>}
+                    </div>
+                  </label>
+                );
+              })}
+              {!filtered.length && <div className="muted small" style={{ padding: 12 }}>Eşleşen tekne yok.</div>}
             </div>
           </div>
-        </Field>
-        <label className="checkbox"><input type="checkbox" checked={f.isActive} onChange={(e) => setF({ ...f, isActive: e.target.checked })} /> Hesap aktif</label>
-      </div>
+        </div>
+      )}
     </Modal>
   );
 }

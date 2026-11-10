@@ -43,7 +43,7 @@ export default function Vessels() {
 
   return (
     <div>
-      <PageHeader title="Tekneler" sub={`${data?.total ?? '…'} kayıtlı tekne · dijital tekne profilleri`} actions={can('vessels.manage') && <button className="btn btn-primary" onClick={() => setForm({})}><Plus /> Yeni Tekne</button>} />
+      <PageHeader title="Tekneler" sub={<>{data?.total ?? '…'} kayıtlı tekne{can('users.manage') && <> · Yeni tekneler, müşteri veya kaptan eklerken <a className="link" style={{ cursor: 'pointer' }} onClick={() => nav('/users?new=1')}>Kullanıcılar</a> bölümünden bağlanır.</>}</>} />
       <Card pad={false}>
         <div className="toolbar">
           <SearchInput value={ls.q} onChange={ls.setQ} placeholder="Tekne, marka, marina, sahip..." />

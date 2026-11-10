@@ -27,7 +27,7 @@ export function CustomersList() {
   ];
   return (
     <div>
-      <PageHeader title="Müşteriler" sub="Tekne sahipleri ve CRM kayıtları" actions={can('customers.manage') && <button className="btn btn-primary" onClick={() => setForm({})}><Plus /> Yeni Müşteri</button>} />
+      <PageHeader title="Müşteriler" sub={<>Tekne sahipleri ve CRM kayıtları{can('users.manage') && <> · Yeni müşteri <a className="link" style={{ cursor: 'pointer' }} onClick={() => nav('/users?new=1')}>Kullanıcılar</a> bölümünden eklenir.</>}</>} />
       <Card pad={false}>
         <div className="toolbar">
           <SearchInput value={ls.q} onChange={ls.setQ} placeholder="Ad, firma, e-posta, tekne..." />

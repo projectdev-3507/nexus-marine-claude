@@ -16,6 +16,7 @@ export async function notifyFault(fault: Fault, vesselName: string, excludeUserI
       entityType: 'Fault',
       entityId: fault.id,
       dedupeKey: `fault-${fault.id}`,
+      fromClient: fault.source === 'CUSTOMER',
     },
     excludeUserId,
   );

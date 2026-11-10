@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Play, Square, CheckCircle2, Send, UserPlus, Pencil, Lock, MessageSquare, Plus, Trash2, Clock, RotateCcw, PauseCircle, XCircle, Paperclip, X, FileText, Film, Image as ImageIcon } from 'lucide-react';
+import { Play, Square, CheckCircle2, Send, UserPlus, Pencil, Lock, MessageSquare, Plus, Trash2, Clock, RotateCcw, PauseCircle, XCircle, Paperclip, X, FileText, Film, Image as ImageIcon, Users, Eye } from 'lucide-react';
 import { WORK_ORDER_STATUS_LABELS, WORK_ORDER_TRANSITIONS, TECHNICIAN_TRANSITIONS, type WorkOrderStatus } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -35,19 +35,20 @@ export default function WorkOrderDetail() {
   const [assign, setAssign] = useState(false);
   const [transition, setTransition] = useState<WorkOrderStatus | null>(null);
   const [comment, setComment] = useState('');
-  const [internal, setInternal] = useState(true);
+  // Yorum kanalı (personel): müşteriyle mi, ekip içi mi
+  const [channel, setChannel] = useState<'client' | 'team'>('client');
   const [mat, setMat] = useState({ materialId: '', quantity: '' });
   const materials = useMaterialOptions();
 
   const saveChecklist = useAction((checklist: any[]) => api(`/work-orders/${id}`, { method: 'PUT', body: { checklist } }));
   const [pending, setPending] = useState<File[]>([]);
   const addComment = useAction(
-    async () => {
+    async (internal: boolean) => {
       const c = await api<any>(`/work-orders/${id}/comments`, { body: { body: comment, internal: staff ? internal : false, withFiles: pending.length > 0 } });
       if (pending.length) await uploadFiles('COMMENT', c.id, pending);
       return c;
     },
-    { success: staff ? 'Açıklama eklendi' : 'Yorum eklendi', onSuccess: () => { setComment(''); setPending([]); } },
+    { success: 'Yorum eklendi', onSuccess: () => { setComment(''); setPending([]); } },
   );
   const delFile = useAction((fileId: string) => api(`/files/${fileId}`, { method: 'DELETE' }), { success: 'Dosya silindi' });
   const addMat = useAction(() => api(`/work-orders/${id}/materials`, { body: { materialId: mat.materialId, quantity: Number(mat.quantity) } }), { success: 'Malzeme eklendi, stoktan düşüldü', onSuccess: () => setMat({ materialId: '', quantity: '' }) });
@@ -73,36 +74,40 @@ export default function WorkOrderDetail() {
         sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{w.number}</span><StatusBadge map={WO_TONE} labels={WORK_ORDER_STATUS_LABELS} value={w.status} /><StatusBadge map={PRIORITY_TONE} labels={PRIORITY_LABELS} value={w.priority} /><Link to={`/vessels/${w.vessel.id}`}>{w.vessel.name}</Link></span>}
         actions={
           <>
-            {manager && ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'ON_HOLD'].includes(w.status) && <button className="btn" onClick={() => setAssign(true)}><UserPlus /> {w.technician ? 'Yeniden ata' : 'Teknisyen ata'}</button>}
+            {manager && w.technician && ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'ON_HOLD'].includes(w.status) && <button className="btn" onClick={() => setAssign(true)}><UserPlus /> Yeniden ata</button>}
+            {manager && !w.technician && ['ASSIGNED', 'ON_HOLD'].includes(w.status) && <button className="btn" onClick={() => setAssign(true)}><UserPlus /> Teknisyen ata</button>}
             {manager && <button className="btn" onClick={() => setEdit(true)}><Pencil /> Düzenle</button>}
-            {allowed.map((to) => {
-              const m = ACTION_META[to];
-              if (!m) return null;
-              return <button key={to} className={m.cls} onClick={() => setTransition(to)}><m.icon /> {m.label}</button>;
-            })}
           </>
         }
       />
 
-      {staff && (
-        <div className="card card-pad mb-2" style={{ overflowX: 'auto' }}>
-          <div className="row" style={{ gap: 0, minWidth: 720 }}>
-            {FLOW.map((s, i) => {
-              const reached = flowIdx >= i || (flowIdx === -1 && i < 5);
-              return (
-                <div key={s} className="row" style={{ flex: 1, gap: 0 }}>
-                  <div style={{ textAlign: 'center', flex: 'none', width: 86 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', margin: '0 auto', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, background: w.status === s ? 'var(--marine)' : reached ? 'var(--ok)' : 'var(--neutral-bg)', color: reached || w.status === s ? '#fff' : 'var(--muted)' }}>{i + 1}</div>
-                    <div className="xs mt-1" style={{ color: w.status === s ? 'var(--marine)' : 'var(--muted)', fontWeight: w.status === s ? 700 : 500, lineHeight: 1.2 }}>{WORK_ORDER_STATUS_LABELS[s]}</div>
-                  </div>
-                  {i < FLOW.length - 1 && <div style={{ flex: 1, height: 2, background: flowIdx > i ? 'var(--ok)' : 'var(--border)', marginTop: -18 }} />}
-                </div>
-              );
-            })}
+      {staff && (() => {
+        // Sıradaki adım: ne yapılması gerektiğini tek cümleyle söyler, ana eylemi büyük butonla sunar
+        const primaryOrder: WorkOrderStatus[] = ['IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED', 'PLANNED', 'EVALUATION'];
+        const primary = primaryOrder.find((s) => allowed.includes(s));
+        const secondary = allowed.filter((s) => s !== primary && ACTION_META[s]);
+        const needsTech = manager && !w.technician && ['REQUESTED', 'EVALUATION', 'PLANNED'].includes(w.status);
+        const step = Math.max(0, flowIdx);
+        const tech = w.technician?.name ?? 'Teknisyen';
+        const msg = nextStepText(w.status, { manager, mine, tech });
+        const off = ['ON_HOLD', 'REVISION_REQUIRED', 'CANCELLED'].includes(w.status);
+        return (
+          <div className={`next-step mb-2${off ? ' warn' : ''}${w.status === 'CLOSED' || w.status === 'PUBLISHED' ? ' done' : ''}`}>
+            <div className="ns-top">
+              <span className="ns-step">{off ? WORK_ORDER_STATUS_LABELS[w.status as WorkOrderStatus] : `Adım ${step + 1} / ${FLOW.length} · ${WORK_ORDER_STATUS_LABELS[w.status as WorkOrderStatus]}`}</span>
+              <div className="ns-bar"><i style={{ width: `${((step + 1) / FLOW.length) * 100}%` }} /></div>
+            </div>
+            <div className="ns-body">
+              <div className="ns-msg"><b>Sıradaki adım</b><span>{msg}</span></div>
+              <div className="ns-actions">
+                {needsTech && <button className="btn btn-primary btn-lg" onClick={() => setAssign(true)}><UserPlus /> Teknisyen ata</button>}
+                {primary && ACTION_META[primary] && (() => { const m = ACTION_META[primary]!; return <button className={`${m.cls.includes('btn-') ? m.cls : 'btn btn-primary'} btn-lg`} onClick={() => setTransition(primary)}><m.icon /> {m.label}</button>; })()}
+                {secondary.map((to) => { const m = ACTION_META[to]!; return <button key={to} className="btn btn-sm" onClick={() => setTransition(to)}><m.icon /> {m.label}</button>; })}
+              </div>
+            </div>
           </div>
-          {['ON_HOLD', 'REVISION_REQUIRED', 'CANCELLED'].includes(w.status) && <div className="notice warn mt-2">Bu iş emri şu anda <b>&nbsp;{WORK_ORDER_STATUS_LABELS[w.status as WorkOrderStatus]}&nbsp;</b> durumunda.</div>}
-        </div>
-      )}
+        );
+      })()}
 
       <div className="grid g-side">
         <div className="stack">
@@ -187,14 +192,32 @@ export default function WorkOrderDetail() {
               </div>
             </Card>
           )}
-          <Card title={<span className="row" style={{ gap: 8 }}><MessageSquare size={16} /> {staff ? 'Açıklamalar' : 'Yorumlar'}</span>}>
+          {(() => {
+            const all: any[] = w.comments ?? [];
+            const team = all.filter((c) => c.internal);
+            const client = all.filter((c) => !c.internal);
+            const isTeam = staff && channel === 'team';
+            const list = staff ? (isTeam ? team : client) : all;
+            return (
+          <Card className={`comments-card${isTeam ? ' is-team' : ''}`} title={<span className="row" style={{ gap: 8 }}><MessageSquare size={16} /> Yorumlar</span>}>
             <div className="stack" style={{ gap: 12 }}>
-              {(w.comments ?? []).length === 0 && <span className="small muted">{staff ? 'Henüz açıklama yok.' : 'Henüz yorum yok.'}</span>}
-              {(w.comments ?? []).map((c: any) => (
-                <div key={c.id} className="row" style={{ alignItems: 'flex-start' }}>
+              {staff && (
+                <div className="cm-tabs" role="tablist">
+                  <button role="tab" aria-selected={!isTeam} className={`cm-client${!isTeam ? ' active' : ''}`} onClick={() => setChannel('client')}><Users size={15} /> Müşteriyle <em>{client.length}</em></button>
+                  <button role="tab" aria-selected={isTeam} className={`cm-team${isTeam ? ' active' : ''}`} onClick={() => setChannel('team')}><Lock size={15} /> Ekip içi <em>{team.length}</em></button>
+                </div>
+              )}
+              {staff && (
+                <div className={`cm-note${isTeam ? ' team' : ''}`}>
+                  {isTeam ? <><Lock size={14} /> Yalnızca ekip görür — müşteri (tekne sahibi / kaptan) bu yorumları göremez.</> : <><Eye size={14} /> Buraya yazılanları müşteri (tekne sahibi / kaptan) görür.</>}
+                </div>
+              )}
+              {list.length === 0 && <span className="small muted">{isTeam ? 'Henüz ekip içi yorum yok.' : 'Henüz yorum yok.'}</span>}
+              {list.map((c: any) => (
+                <div key={c.id} className={`cm-item${c.internal ? ' team' : ''}${c.user.id === user?.id ? ' mine' : ''}`}>
                   <Avatar name={c.user.name} size="sm" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="small"><b>{c.user.name}</b> <span className="muted xs">{relTime(c.createdAt)}</span> {staff && c.internal && <Badge tone="neutral" plain>Dahili</Badge>}</div>
+                  <div className="cm-bubble">
+                    <div className="small"><b>{c.user.name}</b> <span className="muted xs">{relTime(c.createdAt)}</span></div>
                     {c.body && <div className="small" style={{ whiteSpace: 'pre-wrap' }}>{c.body}</div>}
                     <AttachmentStrip
                       items={(w.commentFiles ?? []).filter((f: any) => f.entityId === c.id)}
@@ -204,7 +227,7 @@ export default function WorkOrderDetail() {
                 </div>
               ))}
               <div className="composer">
-                <textarea className="textarea" placeholder={staff ? 'Not / açıklama yazın...' : 'Yorum yazın...'} value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 64 }} />
+                <textarea className="textarea" placeholder={isTeam ? 'Ekip içi yorum yazın… (müşteri görmez)' : 'Yorum yazın…'} value={comment} onChange={(e) => setComment(e.target.value)} style={{ minHeight: 64 }} />
                 {pending.length > 0 && (
                   <div className="pending-files">
                     {pending.map((f, i) => (
@@ -222,15 +245,16 @@ export default function WorkOrderDetail() {
                     <Paperclip /> <span>Ekle</span>
                     <input type="file" multiple hidden accept={MEDIA_ACCEPT} onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; setPending([...pending, ...fs].slice(0, 10)); }} />
                   </label>
-                  {staff && <label className="checkbox small"><input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Yalnızca personel görsün</label>}
                   <span className="spacer" />
-                  <button className="btn btn-sm btn-primary" disabled={(!comment.trim() && !pending.length) || addComment.isPending} onClick={() => addComment.mutate(undefined)}>
-                    {addComment.isPending ? (pending.length ? 'Yükleniyor…' : 'Gönderiliyor…') : <><Send /> Gönder</>}
+                  <button className={`btn btn-sm ${isTeam ? 'btn-team' : 'btn-primary'}`} disabled={(!comment.trim() && !pending.length) || addComment.isPending} onClick={() => addComment.mutate(isTeam)}>
+                    {addComment.isPending ? (pending.length ? 'Yükleniyor…' : 'Gönderiliyor…') : <>{isTeam ? <Lock /> : <Send />} {isTeam ? 'Ekibe gönder' : 'Gönder'}</>}
                   </button>
                 </div>
               </div>
             </div>
           </Card>
+            );
+          })()}
           <Card title="İş geçmişi">
             <div className="timeline">
               {(w.history ?? []).map((h: any, i: number) => (
@@ -250,6 +274,25 @@ export default function WorkOrderDetail() {
       {transition && <TransitionModal wo={w} to={transition} onClose={() => setTransition(null)} />}
     </div>
   );
+}
+
+/** Duruma ve kullanıcıya göre "şimdi ne yapılmalı" açıklaması */
+function nextStepText(status: string, { manager, mine, tech }: { manager: boolean; mine: boolean; tech: string }) {
+  switch (status) {
+    case 'REQUESTED': return manager ? 'Yeni talep geldi. İnceleyip teknisyen atayın veya planlayın.' : 'Talep operasyon ekibinin incelemesini bekliyor.';
+    case 'EVALUATION': return manager ? 'Talep değerlendiriliyor. Teknisyen atayarak işi planlayın.' : 'Talep değerlendiriliyor.';
+    case 'PLANNED': return manager ? 'İş planlandı. Bir teknisyen atayın.' : 'İş planlandı, teknisyen ataması bekleniyor.';
+    case 'ASSIGNED': return mine ? 'Bu iş sana atandı. Tekneye vardığında "İşe başla"ya bas.' : `${tech} işe başlamayı bekliyor.`;
+    case 'IN_PROGRESS': return mine ? 'Çalışma sürüyor. Fotoğrafları ekle; bitince "İşi bitir · kontrole gönder"e bas.' : `${tech} şu anda bu iş üzerinde çalışıyor.`;
+    case 'REVISION_REQUIRED': return mine ? 'Yönetici revizyon istedi. Notları okuyup işe tekrar başla.' : `${tech} revizyonu yapacak.`;
+    case 'ON_HOLD': return manager ? 'İş beklemede. Hazır olduğunda planlayın.' : 'İş beklemeye alındı.';
+    case 'TECHNICAL_REVIEW': return manager ? 'İş bitti. Fotoğraf ve notları kontrol edip onaylayın ya da revizyon isteyin.' : 'İş bitti, yönetici kontrolü bekleniyor.';
+    case 'COMPLETED': return manager ? 'Kontrol onaylandı. Kısa bir özetle müşteriye yayınlayın.' : 'Kontrol onaylandı, müşteriye yayınlanacak.';
+    case 'PUBLISHED': return manager ? 'Müşteriye yayınlandı. Her şey tamamsa işi kapatın.' : 'Müşteriye yayınlandı.';
+    case 'CLOSED': return 'İş tamamlandı ve kapatıldı.';
+    case 'CANCELLED': return 'Bu iş emri iptal edildi.';
+    default: return '';
+  }
 }
 
 function AssignModal({ wo, onClose }: { wo: any; onClose: () => void }) {

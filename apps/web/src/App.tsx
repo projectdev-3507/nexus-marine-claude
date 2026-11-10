@@ -3,11 +3,12 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import type { Permission } from '@nexus/shared';
 import { useAuth } from './lib/auth';
 import { Empty, Loading } from './components/ui';
-import AdminLayout from './layouts/AdminLayout';
+import AdminLayout, { isTechOnly } from './layouts/AdminLayout';
 import PortalLayout from './layouts/PortalLayout';
 import Login from './pages/Login';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const TechHome = lazy(() => import('./pages/TechHome'));
 const Vessels = lazy(() => import('./pages/Vessels'));
 const VesselDetail = lazy(() => import('./pages/VesselDetail'));
 const WorkOrders = lazy(() => import('./pages/WorkOrders'));
@@ -61,7 +62,7 @@ export default function App() {
       ) : staff ? (
         <Routes>
           <Route element={<AdminLayout />}>
-            <Route index element={<S><Dashboard /></S>} />
+            <Route index element={<S><HomeSwitch /></S>} />
             <Route path="vessels" element={<S><Guard perm={['vessels.view']}><Vessels /></Guard></S>} />
             <Route path="vessels/:id" element={<S><Guard perm={['vessels.view']}><VesselDetail /></Guard></S>} />
             <Route path="maintenance" element={<S><Guard perm={['maintenance.view']}><Maintenance /></Guard></S>} />
@@ -117,4 +118,10 @@ export default function App() {
       )}
     </BrowserRouter>
   );
+}
+
+/** Teknisyen "Bugün" ekranını, diğer personel yönetim panelini görür */
+function HomeSwitch() {
+  const { user, manager } = useAuth();
+  return isTechOnly(user?.roles, manager) ? <TechHome /> : <Dashboard />;
 }

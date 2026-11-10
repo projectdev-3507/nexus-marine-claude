@@ -10,6 +10,8 @@ export interface NotifyInput {
   link?: string;
   entityType?: string;
   entityId?: string;
+  /** true: kaptan / tekne sahibi kaynaklı, false: ekip içi */
+  fromClient?: boolean;
   /** Aynı anahtar + kullanıcı için ikinci bildirim üretilmez */
   dedupeKey?: string;
 }

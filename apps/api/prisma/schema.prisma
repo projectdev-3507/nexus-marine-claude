@@ -684,6 +684,8 @@ model Notification {
   link       String?
   /// Aynı olayın tekrar bildirim üretmesini engeller
   dedupeKey  String?
+  /// true: kaptan / tekne sahibi kaynaklı (müşteri bildirimi), false: ekip içi
+  fromClient Boolean   @default(false)
   readAt     DateTime?
   createdAt  DateTime  @default(now())
 
