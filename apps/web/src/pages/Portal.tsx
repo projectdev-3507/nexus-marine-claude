@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { CalendarClock, ClipboardList, MapPin, Anchor, Wrench, AlertTriangle, Hammer, ChevronRight, CheckCircle2, MessageSquarePlus, Receipt, Camera, Ship } from 'lucide-react';
+import { CalendarClock, ClipboardList, MapPin, Anchor, Wrench, AlertTriangle, Hammer, ChevronRight, CheckCircle2, MessageSquarePlus, Receipt, Camera, Ship, FileSignature } from 'lucide-react';
 import { MAINTENANCE_CATEGORY_KEYS, PRIORITIES } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -26,6 +26,7 @@ export function PortalHome() {
   const maint = useApi<any>(vesselId ? '/maintenance' : null, { vesselId, upcoming: 'true', pageSize: 5 }).data?.items ?? [];
   const projects = useApi<any>(vesselId ? '/projects' : null, { vesselId }).data?.items ?? [];
   const quotes = useApi<any>(can('quotes.respond') ? '/quotes' : null, { status: 'SENT' }).data?.items ?? [];
+  const approvals = useApi<any>('/reports', { approval: 'PENDING' }).data?.items ?? [];
   const uploadCover = useAction((files: File[]) => uploadFiles('VESSEL', vesselId!, files, { caption: 'Kapak' }), { success: 'Tekne fotoğrafı güncellendi' });
   if (!vessels) return <Loading />;
   if (!vessels.length) return <Card><Empty title="Hesabınıza bağlı tekne bulunmuyor" text="Lütfen Nexus Marine operasyon ekibiyle iletişime geçin." /></Card>;
@@ -75,6 +76,11 @@ export function PortalHome() {
             </div>
           </section>
 
+          {approvals.length > 0 && (
+            <div className="notice warn" style={{ cursor: 'pointer' }} onClick={() => nav(`/reports/${approvals[0].id}`)}>
+              <FileSignature /> <div><b>{approvals.length} belge onayınızı bekliyor.</b> {approvals[0].title} — incelemek ve onaylamak için tıklayın.</div>
+            </div>
+          )}
           {quotes.length > 0 && (
             <div className="notice" style={{ cursor: 'pointer' }} onClick={() => nav(`/quotes/${quotes[0].id}`)}>
               <Receipt /> <div><b>{quotes.length} teklif onayınızı bekliyor.</b> {quotes[0].title} — incelemek için tıklayın.</div>

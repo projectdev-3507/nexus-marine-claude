@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { INSPECTION_RESULTS, INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, PRIORITIES } from '@nexus/shared';
+import { FINDING_PRIORITIES, INSPECTION_RESULTS, INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, OPERATIONAL_STATUSES, PRIORITIES, findTemplateItem, isCheckSection } from '@nexus/shared';
 import { prisma } from '../db';
 import { ah, badRequest, forbidden, notFound } from '../lib/errors';
 import { assertVesselAccess, requirePerm, vesselFilter, type AuthedRequest, type AuthUser } from '../lib/auth';
@@ -40,12 +40,12 @@ inspectionsRouter.get(
         include: {
           vessel: { select: { id: true, name: true, marina: true } },
           inspector: { select: { id: true, name: true } },
-          items: { select: { result: true } },
+          items: { select: { result: true, sectionCode: true } },
         },
       }),
       prisma.inspection.count({ where }),
     ]);
-    const items = rows.map(({ items: its, ...r }) => ({
+    const items = rows.map(({ items: all, ...r }) => ({ all, r })).map(({ all, r }) => ({ its: all.filter((i) => isCheckSection(i.sectionCode)), r })).map(({ its, r }) => ({
       ...r,
       stats: {
         total: its.length,
@@ -70,6 +70,13 @@ inspectionsRouter.post(
       where: { id: body.vesselId },
       include: { members: { where: { relation: 'CAPTAIN' }, include: { user: { select: { name: true } } } } },
     });
+    // Bölüm 17: önceki haftanın değerleri otomatik gelir
+    const prev = await prisma.inspection.findFirst({
+      where: { vesselId: body.vesselId, status: { in: ['SUBMITTED', 'APPROVED'] } },
+      orderBy: { date: 'desc' },
+      include: { items: { where: { sectionCode: 'S17' } } },
+    });
+    const prevVal = (code: string) => prev?.items.find((i) => i.itemCode === code)?.measurement ?? null;
     const insp = await prisma.$transaction(async (tx) => {
       const number = await nextNumber('INS', tx);
       return tx.inspection.create({
@@ -80,9 +87,19 @@ inspectionsRouter.post(
           date: body.date ?? new Date(),
           captainName: body.captainName ?? vessel.members[0]?.user.name,
           templateVersion: INSPECTION_TEMPLATE_VERSION,
+          location: vessel.marina,
+          pier: vessel.berth,
+          findings: Array.from({ length: 6 }, () => ({ description: '', priority: null, responsible: '', serviceStatus: '' })),
           items: {
             create: INSPECTION_TEMPLATE.flatMap((sec) =>
-              sec.items.map((it) => ({ sectionCode: sec.code, itemCode: it.code, label: it.label, unit: it.unit })),
+              sec.items.map((it) => ({
+                sectionCode: sec.code,
+                itemCode: it.code,
+                label: it.label,
+                description: it.description,
+                unit: it.unit,
+                previousMeasurement: sec.kind === 'READINGS' ? prevVal(it.code) : null,
+              })),
             ),
           },
         },
@@ -106,7 +123,7 @@ inspectionsRouter.get(
     const insp = await prisma.inspection.findUniqueOrThrow({
       where: { id: req.params.id },
       include: {
-        vessel: { select: { id: true, name: true, marina: true, berth: true, make: true, model: true, flag: true } },
+        vessel: { select: { id: true, name: true, marina: true, berth: true, make: true, model: true, flag: true, type: true } },
         inspector: { select: { id: true, name: true } },
         items: { orderBy: { itemCode: 'asc' }, include: { fault: { select: { id: true, status: true, workOrderId: true } } } },
         report: { select: { id: true, number: true, status: true } },
@@ -122,14 +139,17 @@ inspectionsRouter.get(
     const sections = INSPECTION_TEMPLATE.map((sec) => ({
       code: sec.code,
       title: sec.title,
+      kind: sec.kind,
       items: insp.items
         .filter((i) => i.sectionCode === sec.code)
         .sort((a, b) => Number(a.itemCode.split('.')[1]) - Number(b.itemCode.split('.')[1]))
-        .map((i) => ({ ...i, attachments: attachments.filter((a) => a.entityId === i.id) })),
+        .map((i) => ({ ...i, description: i.description ?? findTemplateItem(i.itemCode)?.item.description ?? null, attachments: attachments.filter((a) => a.entityId === i.id) })),
     }));
     const { items: _items, ...rest } = insp;
+    const approver = insp.approvedById ? await prisma.user.findUnique({ where: { id: insp.approvedById }, select: { name: true } }) : null;
     res.json({
       ...rest,
+      approverName: approver?.name ?? null,
       sections,
       previous: previous
         ? { id: previous.id, number: previous.number, date: previous.date, items: Object.fromEntries(previous.items.map((i) => [i.itemCode, i])) }
@@ -142,6 +162,7 @@ const itemUpdate = z.object({
   result: z.enum(INSPECTION_RESULTS).nullable().optional(),
   note: zOptStr,
   measurement: zOptStr,
+  previousMeasurement: zOptStr,
 });
 
 /** Kontrol maddesi güncelleme. ARIZA → otomatik arıza kaydı + yönetici bildirimi */
@@ -153,7 +174,12 @@ async function updateItem(user: AuthUser, inspectionId: string, itemId: string, 
   if (!item) throw notFound('Kontrol maddesi');
   const updated = await prisma.inspectionItem.update({
     where: { id: item.id },
-    data: { result: data.result === undefined ? undefined : data.result, note: data.note ?? undefined, measurement: data.measurement ?? undefined },
+    data: {
+      result: data.result === undefined ? undefined : data.result,
+      note: data.note ?? undefined,
+      measurement: data.measurement ?? undefined,
+      previousMeasurement: data.previousMeasurement ?? undefined,
+    },
   });
   if (updated.result === 'FAULT' && !item.fault) {
     const sec = INSPECTION_TEMPLATE.find((s) => s.code === item.sectionCode);
@@ -204,8 +230,45 @@ inspectionsRouter.put(
   ah<AuthedRequest>(async (req, res) => {
     const insp = await loadInspection(req.user, req.params.id);
     if (insp.status === 'APPROVED') throw badRequest('Onaylanmış denetim değiştirilemez');
-    const body = z.object({ generalNotes: zOptStr, captainName: zOptStr, date: z.coerce.date().optional() }).parse(req.body);
-    res.json(await prisma.inspection.update({ where: { id: insp.id }, data: { generalNotes: body.generalNotes ?? undefined, captainName: body.captainName ?? undefined, date: body.date } }));
+    const body = z
+      .object({
+        generalNotes: zOptStr,
+        captainName: zOptStr,
+        date: z.coerce.date().optional(),
+        location: zOptStr,
+        pier: zOptStr,
+        inspectorTitle: zOptStr,
+        operationalStatus: z.enum(OPERATIONAL_STATUSES).nullable().optional(),
+        pumpOutDone: z.boolean().optional(),
+        findings: z
+          .array(
+            z.object({
+              description: z.string().default(''),
+              priority: z.enum(FINDING_PRIORITIES).nullable().optional(),
+              responsible: z.string().optional().default(''),
+              serviceStatus: z.string().optional().default(''),
+            }),
+          )
+          .max(50)
+          .optional(),
+      })
+      .parse(req.body);
+    res.json(
+      await prisma.inspection.update({
+        where: { id: insp.id },
+        data: {
+          generalNotes: body.generalNotes,
+          captainName: body.captainName,
+          date: body.date,
+          location: body.location,
+          pier: body.pier,
+          inspectorTitle: body.inspectorTitle,
+          operationalStatus: body.operationalStatus,
+          pumpOutDone: body.pumpOutDone,
+          findings: body.findings,
+        },
+      }),
+    );
   }),
 );
 
@@ -218,8 +281,9 @@ inspectionsRouter.post(
     const insp = await prisma.inspection.findUniqueOrThrow({ where: { id: req.params.id }, include: { items: true, vessel: { include: { engines: true } } } });
     if (insp.status !== 'DRAFT') throw badRequest('Denetim zaten gönderilmiş');
     if (!req.user.isManager && insp.inspectorId !== req.user.id) throw forbidden();
-    const missing = insp.items.filter((i) => !i.result);
+    const missing = insp.items.filter((i) => isCheckSection(i.sectionCode) && !i.result);
     if (missing.length) throw badRequest(`${missing.length} kontrol maddesi değerlendirilmedi`, { missing: missing.map((m) => m.itemCode) });
+    if (!insp.operationalStatus) throw badRequest('Bölüm 19: tekne genel operasyonel statüsünü seçin');
     // Ölçülen motor saatlerini tekne kaydına işle
     for (const [code, re] of Object.entries(ENGINE_HOUR_ITEMS)) {
       const it = insp.items.find((i) => i.itemCode === code);

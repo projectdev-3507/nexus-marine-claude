@@ -30,7 +30,7 @@ export const NAV: NavItem[] = [
   { to: '/maintenance', label: 'Bakım Planları', icon: Wrench, perm: ['maintenance.view'], section: 'Operasyon' },
   { to: '/technicians', label: 'Teknisyenler', icon: HardHat, perm: ['technicians.view'] },
   { to: '/inspections', label: 'Denetimler', icon: ClipboardCheck, perm: ['inspections.view'] },
-  { to: '/reports', label: 'Raporlar', icon: FileText, perm: ['reports.manage'] },
+  { to: '/reports', label: 'Raporlar ve Sözleşmeler', icon: FileText, perm: ['reports.manage'] },
   { to: '/projects', label: 'Projeler', icon: Hammer, perm: ['projects.manage'] },
   { to: '/inventory', label: 'Stok', icon: Package, perm: ['inventory.view'] },
   { to: '/finance', label: 'Teklifler ve Finans', icon: Receipt, perm: ['finance.view'], section: 'Ticari' },
@@ -56,7 +56,7 @@ const QUICK: Array<{ label: string; to: string; icon: typeof Ship; perm: Permiss
   { label: 'Bakım planı', to: '/maintenance?new=1', icon: Wrench, perm: ['maintenance.manage'] },
   { label: 'Denetim', to: '/inspections?new=1', icon: ClipboardCheck, perm: ['inspections.perform'] },
   { label: 'Müşteri / kullanıcı', to: '/users?new=1', icon: Users, perm: ['users.manage'] },
-  { label: 'Teknik rapor', to: '/reports?new=1', icon: FileText, perm: ['reports.manage'] },
+  { label: 'Rapor / sözleşme', to: '/reports?new=1', icon: FileText, perm: ['reports.manage'] },
 ];
 
 export function useUnread() {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { FileText, Save, Send, CheckCircle2, Globe, Plus, Trash2, Download, ShieldAlert } from 'lucide-react';
-import { REPORT_TYPES, type ReportType } from '@nexus/shared';
+import { FileText, Save, Send, CheckCircle2, Globe, Plus, Trash2, Download, ShieldAlert, XCircle, Clock } from 'lucide-react';
+import { APPROVAL_REPORT_TYPES, REPORT_TYPES, type ReportType } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, authedUrl } from '../lib/api';
@@ -9,10 +9,11 @@ import { Badge, Card, Field, Loading, Modal, PageHeader, StatusBadge } from '../
 import { Gallery, Uploader } from '../components/media';
 import { fmtDate, fmtDateTime, toInputDate } from '../lib/format';
 import { REPORT_STATUS_LABELS, REPORT_TONE } from '../lib/labels';
+import { ProposalDoc, ProtocolDoc, ScrapingDoc } from './reportDocs';
 
 export default function ReportDetail() {
   const { id } = useParams();
-  const { can, staff } = useAuth();
+  const { can, staff, manager } = useAuth();
   const { data: r } = useApi<any>(`/reports/${id}`);
   const files = useApi<any[]>('/files', { entityType: 'REPORT', entityId: id }).data ?? [];
   const latest = r?.versions?.[0];
@@ -27,11 +28,18 @@ export default function ReportDetail() {
   const save = useAction(() => api(`/reports/${id}`, { method: 'PUT', body: { title, data } }), { success: latest && ['APPROVED', 'PUBLISHED'].includes(latest.status) ? 'Yeni sürüm oluşturuldu' : 'Taslak kaydedildi' });
   const submit = useAction(() => api(`/reports/${id}/submit`, { body: {} }), { success: 'Rapor kontrole gönderildi' });
   const publish = useAction(() => api(`/reports/${id}/publish`, { body: {} }), { success: 'Rapor müşteriye yayınlandı' });
+  const requestApproval = useAction(() => api(`/reports/${id}/request-approval`, { body: {} }), { success: 'Belge müşteri onayına gönderildi' });
+  const [decision, setDecision] = useState<'APPROVED' | 'REJECTED' | null>(null);
 
   if (!r || !data) return <Loading />;
   const editable = can('reports.manage') && r.type !== 'INSPECTION';
   const approvedVersion = latest && ['APPROVED', 'PUBLISHED'].includes(latest.status);
   const set = (k: string, v: any) => setData({ ...data, [k]: v });
+  // Örnek belgelerle birebir düzenlenen belge türleri
+  const docMode = r.type === 'PROJECT_PROPOSAL' || (r.type === 'DELIVERY_PROTOCOL' && Array.isArray(data.parties)) || (r.type === 'POST_SCRAPING' && Array.isArray(data.starboard));
+  const approvalType = (APPROVAL_REPORT_TYPES as readonly string[]).includes(r.type);
+  const approval = r.approvalStatus === 'APPROVED' ? { by: r.approvalDecidedBy, at: r.approvalDecidedAt } : null;
+  const canDecide = r.approvalStatus === 'PENDING' && (!staff || manager);
 
   return (
     <div>
@@ -46,10 +54,32 @@ export default function ReportDetail() {
             {editable && <button className="btn" onClick={() => save.mutate(undefined)}><Save /> {approvedVersion ? 'Yeni sürüm olarak kaydet' : 'Kaydet'}</button>}
             {editable && latest?.status === 'DRAFT' && <button className="btn" onClick={() => submit.mutate(undefined)}><Send /> Kontrole gönder</button>}
             {can('reports.approve') && latest && ['DRAFT', 'IN_REVIEW'].includes(latest.status) && r.type !== 'INSPECTION' && <button className="btn btn-success" onClick={() => setApprove(true)}><CheckCircle2 /> Onayla</button>}
-            {can('reports.approve') && latest && latest.status === 'APPROVED' && <button className="btn btn-primary" onClick={() => publish.mutate(undefined)}><Globe /> Müşteriye yayınla</button>}
+            {can('reports.approve') && latest && latest.status === 'APPROVED' && !approvalType && <button className="btn btn-primary" onClick={() => publish.mutate(undefined)}><Globe /> Müşteriye yayınla</button>}
+            {can('reports.approve') && approvalType && latest && ['APPROVED', 'PUBLISHED'].includes(latest.status) && (r.approvalStatus !== 'PENDING' || latest.status === 'APPROVED') && (
+              <button className="btn btn-primary" onClick={() => requestApproval.mutate(undefined)}><Send /> {r.approvalStatus ? 'Tekrar onaya gönder' : 'Müşteri onayına gönder'}</button>
+            )}
           </>
         }
       />
+      {r.approvalStatus && (
+        <div className={`approval-banner ${r.approvalStatus}`}>
+          {r.approvalStatus === 'APPROVED' ? <CheckCircle2 /> : r.approvalStatus === 'REJECTED' ? <XCircle /> : <Clock />}
+          <div className="grow">
+            <b>{r.approvalStatus === 'APPROVED' ? 'Onay alındı' : r.approvalStatus === 'REJECTED' ? 'Reddedildi' : staff ? 'Müşteri onayı bekleniyor' : 'Bu belge onayınızı bekliyor'}</b>
+            <span className="small">
+              {r.approvalStatus === 'PENDING'
+                ? `Onaya gönderildi: ${fmtDateTime(r.approvalRequestedAt)}`
+                : `${r.approvalDecidedBy ?? ''} · ${fmtDateTime(r.approvalDecidedAt)}${r.approvalNote ? ` · “${r.approvalNote}”` : ''}`}
+            </span>
+          </div>
+          {canDecide && (
+            <div className="row-wrap" style={{ gap: 8 }}>
+              <button className="btn btn-danger" onClick={() => setDecision('REJECTED')}><XCircle /> Reddet</button>
+              <button className="btn btn-success" onClick={() => setDecision('APPROVED')}><CheckCircle2 /> {staff ? 'Müşteri adına onayla' : 'Okudum, onaylıyorum'}</button>
+            </div>
+          )}
+        </div>
+      )}
       {approvedVersion && editable && <div className="notice warn mb-2"><ShieldAlert /> Bu sürüm onaylıdır. Değişiklikler kaydedildiğinde yeni bir sürüm (v{latest.version + 1}) taslak olarak oluşturulur; onaylı sürüm korunur.</div>}
       <div className="grid g-side">
         <div className="stack">
@@ -59,12 +89,14 @@ export default function ReportDetail() {
             </Card>
           ) : (
             <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0 }} className="stack">
-              <Card title="Rapor başlığı"><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} /></Card>
-              {r.type === 'POST_SCRAPING' && <PostScraping d={data} set={set} />}
+              {staff && <Card title="Kayıt adı (listede görünür)"><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} /></Card>}
+              {docMode && editable && <div className="notice"><FileText /><div>Belgeyi doğrudan sayfa üzerinde düzenleyin: metnin üzerine tıklayın, satırların sağındaki oklarla taşıyın, çöp kutusuyla silin. Değişiklikleri üstteki <b>Kaydet</b> ile saklayın.</div></div>}
+              {r.type === 'PROJECT_PROPOSAL' && <ProposalDoc d={data} set={set} disabled={!editable} approval={approval} />}
+              {r.type === 'POST_SCRAPING' && (docMode ? <ScrapingDoc d={data} set={set} disabled={!editable} /> : <PostScraping d={data} set={set} />)}
               {r.type === 'HULL_RESTORATION' && <HullRestoration d={data} set={set} />}
               {r.type === 'TEAK_CARPENTRY' && <Teak d={data} set={set} />}
-              {r.type === 'DELIVERY_PROTOCOL' && <Delivery d={data} set={set} />}
-              <Card title="Ek açıklamalar"><textarea className="textarea" value={data.preparedNotes ?? ''} onChange={(e) => set('preparedNotes', e.target.value)} /></Card>
+              {r.type === 'DELIVERY_PROTOCOL' && (docMode ? <ProtocolDoc d={data} set={set} disabled={!editable} approval={approval} /> : <Delivery d={data} set={set} />)}
+              {(!docMode || data.preparedNotes) && <Card title="Ek açıklamalar"><textarea className="textarea" value={data.preparedNotes ?? ''} onChange={(e) => set('preparedNotes', e.target.value)} /></Card>}
             </fieldset>
           )}
           {r.type !== 'INSPECTION' && (
@@ -101,7 +133,33 @@ export default function ReportDetail() {
         </div>
       </div>
       {approve && <ApproveModal id={r.id} type={r.type} onClose={() => setApprove(false)} />}
+      {decision && <DecisionModal id={r.id} decision={decision} title={r.title} onBehalf={staff} onClose={() => setDecision(null)} />}
     </div>
+  );
+}
+
+/** Müşteri onay / red kararı */
+function DecisionModal({ id, decision, title, onBehalf, onClose }: { id: string; decision: 'APPROVED' | 'REJECTED'; title: string; onBehalf: boolean; onClose: () => void }) {
+  const [note, setNote] = useState('');
+  const send = useAction(() => api(`/reports/${id}/decision`, { body: { decision, note: note || null } }), { success: decision === 'APPROVED' ? 'Belge onaylandı' : 'Belge reddedildi, ekibe iletildi', onSuccess: onClose });
+  const ok = decision === 'APPROVED';
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={ok ? 'Belgeyi onayla' : 'Belgeyi reddet'}
+      footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className={`btn ${ok ? 'btn-success' : 'btn-danger'}`} disabled={(!ok && !note.trim()) || send.isPending} onClick={() => send.mutate(undefined)}>{ok ? <><CheckCircle2 /> Onaylıyorum</> : <><XCircle /> Reddet</>}</button></>}
+    >
+      <div className="stack">
+        <p><b>{title}</b></p>
+        {ok ? (
+          <div className="notice"><CheckCircle2 /><div>{onBehalf ? 'Müşteri adına onay kaydedilecek; kayıtta adınız "müşteri adına" notuyla yer alır.' : 'Belgenin içeriğini okuduğunuzu ve onayladığınızı beyan edersiniz. Onay, adınız ve tarih ile belgeye işlenir.'}</div></div>
+        ) : (
+          <div className="notice warn"><ShieldAlert /><div>Reddetme nedeniniz Nexus Marine ekibine iletilir; belge düzeltilip tekrar onayınıza sunulur.</div></div>
+        )}
+        <Field label={ok ? 'Not (isteğe bağlı)' : 'Reddetme nedeni *'}><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+      </div>
+    </Modal>
   );
 }
 

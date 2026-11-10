@@ -86,6 +86,7 @@ enum ReportType {
   HULL_RESTORATION
   TEAK_CARPENTRY
   DELIVERY_PROTOCOL
+  PROJECT_PROPOSAL
 }
 
 enum ReportStatus {
@@ -406,6 +407,17 @@ model Inspection {
   status          InspectionStatus @default(DRAFT)
   templateVersion String
   generalNotes    String?
+  /// Lokasyon / bağlama ve peron
+  location        String?
+  pier            String?
+  /// Bölüm 19: READY / FOLLOW_UP / NOT_READY
+  operationalStatus String?
+  /// Bölüm 18: tespit edilen arızalar tablosu [{description, priority, responsible, serviceStatus}]
+  findings        Json?
+  /// Bölüm 17: siyah/gri su boşaltımı (pump-out) yapıldı
+  pumpOutDone     Boolean          @default(false)
+  /// Denetimi yapan kaptan / enspektörün görevi
+  inspectorTitle  String?
   submittedAt     DateTime?
   approvedById    String?
   approvedAt      DateTime?
@@ -426,6 +438,10 @@ model InspectionItem {
   itemCode     String
   label        String
   unit         String?
+  /// Standart teknik kontrol tanımı
+  description  String?
+  /// Bölüm 17: önceki hafta değeri
+  previousMeasurement String?
   result       InspectionResult?
   note         String?
   measurement  String?
@@ -470,6 +486,13 @@ model Report {
   status          ReportStatus @default(DRAFT)
   currentVersion  Int          @default(1)
   customerVisible Boolean      @default(false)
+  /// Müşteri onayı (sözleşme / protokol / teklif dosyası): PENDING / APPROVED / REJECTED
+  approvalStatus      String?
+  approvalRequestedAt DateTime?
+  approvalDecidedAt   DateTime?
+  approvalDecidedById String?
+  approvalDecidedBy   String?
+  approvalNote        String?
   createdById     String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt

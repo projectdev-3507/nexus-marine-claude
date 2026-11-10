@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import { PrismaClient, type User, type Customer, type Vessel, type Engine, type Material, type WorkOrder, type Priority, type WorkOrderStatus, type MaintenanceCategory, type Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, HULL_RESTORATION_PHASES, MAINTENANCE_CATEGORIES } from '@nexus/shared';
+import { INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, HULL_RESTORATION_PHASES, MAINTENANCE_CATEGORIES, protocolTemplate, proposalTemplate, scrapingTemplate } from '@nexus/shared';
 
 const prisma = new PrismaClient();
 const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'Nexus2026!';
@@ -82,7 +82,7 @@ async function main() {
   // Tekneler
   const vessels: Array<Vessel & { engines: Engine[] }> = [];
   for (const [i, nm] of VESSEL_NAMES.entries()) {
-    const [make, model, type, len] = i === 0 ? MAKES[2] : i === 1 ? MAKES[3] : pick(MAKES);
+    const [make, model, type, len] = i === 0 ? (['Cranchi', '66 Flybridge', 'Motoryat', 20.5] as [string, string, string, number]) : i === 1 ? MAKES[3] : pick(MAKES);
     const owner = customers[i % customers.length];
     const hasTwin = type !== 'Yelkenli';
     const v = await prisma.vessel.create({
@@ -111,8 +111,8 @@ async function main() {
         engines: {
           create: hasTwin
             ? [
-                { position: 'İskele Ana Makine', make: pick(['MAN', 'MTU', 'Caterpillar', 'Volvo Penta']), model: pick(['V12-1400', '12V 2000 M96', 'C32', 'D13-900']), serialNumber: `ENG-${i}-P`, hours: Math.floor(800 + rnd() * 3000) },
-                { position: 'Sancak Ana Makine', make: pick(['MAN', 'MTU', 'Caterpillar', 'Volvo Penta']), model: pick(['V12-1400', '12V 2000 M96', 'C32', 'D13-900']), serialNumber: `ENG-${i}-S`, hours: Math.floor(800 + rnd() * 3000) },
+                { position: 'İskele Ana Makine', make: i === 0 ? 'Volvo Penta' : pick(['MAN', 'MTU', 'Caterpillar', 'Volvo Penta']), model: i === 0 ? 'IPS 1200 (D13)' : pick(['V12-1400', '12V 2000 M96', 'C32', 'D13-900']), serialNumber: `ENG-${i}-P`, hours: Math.floor(800 + rnd() * 3000) },
+                { position: 'Sancak Ana Makine', make: i === 0 ? 'Volvo Penta' : pick(['MAN', 'MTU', 'Caterpillar', 'Volvo Penta']), model: i === 0 ? 'IPS 1200 (D13)' : pick(['V12-1400', '12V 2000 M96', 'C32', 'D13-900']), serialNumber: `ENG-${i}-S`, hours: Math.floor(800 + rnd() * 3000) },
                 { position: 'Jeneratör', make: 'Kohler', model: '20EFOZD', serialNumber: `GEN-${i}`, hours: Math.floor(1500 + rnd() * 4000) },
               ]
             : [{ position: 'Ana Makine', make: 'Volvo Penta', model: 'D3-150', serialNumber: `ENG-${i}`, hours: Math.floor(500 + rnd() * 2000) }],
@@ -286,29 +286,44 @@ async function main() {
         approvedAt: status === 'APPROVED' ? day(offset + 1) : null,
         approvedById: status === 'APPROVED' ? ops.id : null,
         generalNotes: status !== 'DRAFT' ? 'Tekne genel olarak operasyonel durumdadır. Belirtilen arızalar için iş emri açılmıştır.' : null,
+        location: any.marina,
+        pier: any.berth,
+        inspectorTitle: 'Teknik Enspektör',
+        operationalStatus: status === 'DRAFT' ? null : faultCodes.length ? 'FOLLOW_UP' : 'READY',
+        pumpOutDone: status !== 'DRAFT',
+        findings: [
+          ...faultCodes.map((c) => ({ description: `${INSPECTION_TEMPLATE.flatMap((s) => s.items).find((x) => x.code === c)?.label ?? c} — onarım gerekiyor`, priority: c === 'S07.1' ? 'URGENT' : 'MEDIUM', responsible: techs[0].name, serviceStatus: status === 'APPROVED' ? 'İş emri açıldı' : 'Bekliyor' })),
+          ...Array.from({ length: Math.max(0, 6 - faultCodes.length) }, () => ({ description: '', priority: null, responsible: '', serviceStatus: '' })),
+        ],
       },
     });
+    // Bölüm 17 — haftalık saatler ve tank değerleri (önceki hafta ile)
+    const weeks = Math.abs(offset) / 7;
+    const readings: Record<string, [string, string]> = {
+      'S17.1': [String(any.engines[0].hours - Math.round(weeks * 9)), String(any.engines[0].hours - Math.round(weeks * 9) - 9)],
+      'S17.2': [String(any.engines[1].hours - Math.round(weeks * 9)), String(any.engines[1].hours - Math.round(weeks * 9) - 9)],
+      'S17.3': [String(any.engines[2].hours - Math.round(weeks * 14)), String(any.engines[2].hours - Math.round(weeks * 14) - 14)],
+      'S17.4': ['612', '604'],
+      'S17.5': ['3.400 L / %68', '3.900 L / %78'],
+      'S17.6': ['820 L / %82', '600 L / %60'],
+      'S17.7': ['%15', '%60'],
+    };
     for (const sec of INSPECTION_TEMPLATE) {
       for (const it of sec.items) {
-        const result = status === 'DRAFT' && sec.code > 'S06' ? null : faultCodes.includes(it.code) ? 'FAULT' : attentionCodes.includes(it.code) ? 'ATTENTION' : it.label.includes('Servis botu') || it.code === 'S15.4' ? 'NA' : 'OK';
-        let measurement: string | null = null;
-        if (it.unit === 'V') measurement = (24 + rnd() * 3).toFixed(1);
-        if (it.unit === '%') measurement = String(Math.floor(20 + rnd() * 70));
-        if (it.unit === 'bar') measurement = '55';
-        if (it.unit === 'ppm') measurement = '310';
-        if (it.code === 'S17.1') measurement = String(any.engines[0].hours);
-        if (it.code === 'S17.2') measurement = String(any.engines[1].hours);
-        if (it.code === 'S17.3') measurement = String(any.engines[2].hours);
-        if (it.unit === 'saat' && !measurement) measurement = String(Math.floor(800 + rnd() * 900));
+        const check = sec.kind === 'CHECK';
+        const result = !check || (status === 'DRAFT' && sec.code > 'S06') ? null : faultCodes.includes(it.code) ? 'FAULT' : attentionCodes.includes(it.code) ? 'ATTENTION' : it.code === 'S15.3' ? 'NA' : 'OK';
+        const [measurement, previousMeasurement] = readings[it.code] ?? [null, null];
         const item = await prisma.inspectionItem.create({
           data: {
             inspectionId: insp.id,
             sectionCode: sec.code,
             itemCode: it.code,
             label: it.label,
+            description: it.description,
             unit: it.unit,
             result: result as any,
-            measurement: result ? measurement : null,
+            measurement: status === 'DRAFT' ? null : measurement,
+            previousMeasurement,
             note: result === 'FAULT' ? 'Onarım gerekiyor, iş emri açılmalı.' : result === 'ATTENTION' ? 'Bir sonraki bakımda takip edilecek.' : null,
           },
         });
@@ -432,50 +447,55 @@ async function main() {
             approvedById: ops.id,
             approvedAt: day(-37),
             createdAt: day(-38),
-            changeNote: 'Nem ölçümleri eklendi',
+            changeNote: 'Kazıma bulguları (iskele / sancak) işlendi',
             clauses: [{ key: 'TECHNICAL_COMPLIANCE', text: 'Bu raporda belirtilen tespitler Nexus Marine teknik ekibi tarafından yerinde yapılan inceleme ve ölçümlere dayanmaktadır.', approvedById: ops.id, approvedByName: ops.name, approvedAt: day(-37) }],
-            data: {
-              reportDate: day(-38).toISOString(),
-              inspectionDate: day(-40).toISOString(),
-              location: 'D-Marin Göcek – Karada',
-              inspector: 'Onur Kara',
-              preparedBy: 'Onur Kara',
-              portFindings: 'Su hattı altında, baş bodoslamadan itibaren 4 m uzunluğunda yoğun ozmoz kabarcıkları (2–8 mm) tespit edilmiştir. Kıç ayna köşesinde jelkot çatlakları mevcuttur.',
-              starboardFindings: 'Orta bölümde dağınık ozmoz kabarcıkları, omurga birleşiminde eski dolgu malzemesinde ayrışma gözlemlenmiştir.',
-              damages: [
-                { location: 'Baş bodoslama – su hattı altı', side: 'İskele', description: 'Yoğun ozmoz kabarcıkları, 2–8 mm', severity: 'Yüksek' },
-                { location: 'Kıç ayna köşesi', side: 'İskele', description: 'Jelkot çatlakları', severity: 'Orta' },
-                { location: 'Omurga birleşimi', side: 'Sancak', description: 'Dolgu malzemesinde ayrışma', severity: 'Orta' },
-              ],
-              moistureReadings: [
-                { point: 'Baş bodoslama', side: 'İskele', value: 24 },
-                { point: 'Su hattı orta', side: 'İskele', value: 18 },
-                { point: 'Kıç ayna', side: 'İskele', value: 14 },
-                { point: 'Baş bodoslama', side: 'Sancak', value: 21 },
-                { point: 'Su hattı orta', side: 'Sancak', value: 16 },
-                { point: 'Kıç ayna', side: 'Sancak', value: 12 },
-              ],
-              assessment: 'Alt gövde laminatında belirgin nem birikimi mevcuttur. Ozmoz başlangıç–orta seviyededir. Yapısal bütünlük etkilenmemiş olmakla birlikte, kontrol altına alınmadığı takdirde laminat delaminasyonu riski bulunmaktadır.',
-              recommendation: 'Jelkotun komple soyulması, minimum 4 hafta kontrollü kurutma, nem değerleri %12 altına indikten sonra emprenye, gerekli bölgelerde laminasyon, epoksi bariyer (5 kat) ve zehirli boya uygulaması önerilir.',
-            },
+            // Admin'in ilettiği "kazıma sonrası teknik inceleme raporu" birebir
+            data: { reportDate: day(-38).toISOString(), inspectionDate: day(-40).toISOString(), location: 'D-Marin Göcek – Karada', inspector: 'Onur Kara', preparedBy: 'Onur Kara', ...scrapingTemplate(seaRods.name) },
           },
         ],
       },
     },
   });
-  // Taslak teslim protokolü
+  // M/Y SEA RODS — Proje Teklif Dosyası: Gövde Onarım ve İyileştirme (müşteri onayı alındı)
   await prisma.report.create({
     data: {
       number: `RPT-${year}-0003`,
-      type: 'DELIVERY_PROTOCOL',
-      title: 'Birleşik Bakım ve Teslim Protokolü — M/Y ANY',
-      vesselId: any.id,
-      status: 'DRAFT',
-      createdById: ops.id,
-      versions: { create: { version: 1, createdById: ops.id, data: { works: wos.filter((w) => w.vesselId === any.id && ['PUBLISHED', 'CLOSED'].includes(w.status)).map((w) => ({ description: w.title, ref: w.number, date: w.finishedAt })), captainRequests: [], approvedExtras: [], materials: [], deliveryDate: day(3).toISOString(), warranty: '12 ay işçilik garantisi', paymentStatus: 'Kısmi ödeme', notes: '' } } },
+      type: 'PROJECT_PROPOSAL',
+      title: 'Proje Teklif Dosyası: Gövde Onarım ve İyileştirme — M/Y SEA RODS',
+      vesselId: seaRods.id,
+      projectId: project.id,
+      status: 'PUBLISHED',
+      customerVisible: true,
+      createdById: ops2.id,
+      approvalStatus: 'APPROVED',
+      approvalRequestedAt: day(-37),
+      approvalDecidedAt: day(-36),
+      approvalDecidedById: ownerUser2.id,
+      approvalDecidedBy: ownerUser2.name,
+      versions: {
+        create: { version: 1, status: 'PUBLISHED', createdById: ops2.id, approvedById: ops.id, approvedAt: day(-37), createdAt: day(-37), data: { reportDate: day(-37).toISOString(), ...proposalTemplate(seaRods.name), preparedBy1: 'Onur Kara', preparedBy2: ops2.name, approvedBy: ops.name } as any },
+      },
     },
   });
-  await prisma.counter.createMany({ data: [{ key: `WO-${year}`, value: woCounter }, { key: `INS-${year}`, value: 3 }, { key: `RPT-${year}`, value: 3 }, { key: `TKF-${year}`, value: 4 }] });
+  // M/Y SEA RODS — Nihai Birleşik Teslim Protokolü (müşteri onayı bekleniyor)
+  await prisma.report.create({
+    data: {
+      number: `RPT-${year}-0004`,
+      type: 'DELIVERY_PROTOCOL',
+      title: "Nihai Birleşik Restorasyon, Teak Güverte, Bakım ve Teslim Protokolü — M/Y SEA ROD'S",
+      vesselId: seaRods.id,
+      projectId: project.id,
+      status: 'PUBLISHED',
+      customerVisible: true,
+      createdById: ops.id,
+      approvalStatus: 'PENDING',
+      approvalRequestedAt: day(-1),
+      versions: {
+        create: { version: 1, status: 'PUBLISHED', createdById: ops.id, approvedById: ops.id, approvedAt: day(-1), createdAt: day(-2), data: { reportDate: day(-2).toISOString(), ...protocolTemplate("M/Y SEA ROD'S") } as any },
+      },
+    },
+  });
+  await prisma.counter.createMany({ data: [{ key: `WO-${year}`, value: woCounter }, { key: `INS-${year}`, value: 3 }, { key: `RPT-${year}`, value: 4 }, { key: `TKF-${year}`, value: 4 }] });
 
   // Teklifler
   const mkQuote = async (n: number, customerIdx: number, vesselIdx: number, title: string, status: 'DRAFT' | 'SENT' | 'APPROVED' | 'REJECTED', items: Array<[string, number, string, number]>) =>
@@ -530,6 +550,7 @@ async function main() {
       n(ownerUser.id, 'QUOTE_SENT', 'Yeni teklifiniz var', 'Kış bakımı paketi — M/Y ANY', '/quotes'),
       n(ownerUser.id, 'NEW_REPORT', 'Yeni teknik rapor yayınlandı', 'Haftalık Periyodik Teknik Denetim — M/Y ANY', '/reports', true),
       n(ownerUser2.id, 'NEW_REPORT', 'Yeni teknik rapor yayınlandı', 'Kazıma Sonrası Teknik İnceleme Raporu — M/Y SEA RODS', '/reports'),
+      n(ownerUser2.id, 'APPROVAL_REQUEST', 'Onayınız bekleniyor', "Nihai Birleşik Restorasyon, Teak Güverte, Bakım ve Teslim Protokolü — M/Y SEA ROD'S", '/reports'),
       n(captains[0].id, 'SERVICE_COMPLETED', 'Servis tamamlandı', 'Yağ ve filtre değişimi tamamlandı', '/work-orders'),
     ],
   });

@@ -168,6 +168,7 @@ export const REPORT_TYPES = {
   HULL_RESTORATION: 'Gövde Restorasyonu ve Bakım Raporu',
   TEAK_CARPENTRY: 'Teak Güverte ve Marangozluk Raporu',
   DELIVERY_PROTOCOL: 'Birleşik Bakım ve Teslim Protokolü',
+  PROJECT_PROPOSAL: 'Proje Teklif Dosyası',
 } as const;
 export type ReportType = keyof typeof REPORT_TYPES;
 
@@ -209,6 +210,8 @@ export const NOTIFICATION_TYPES = {
   CUSTOMER_REQUEST: 'Müşteri talebi',
   PROJECT_DELIVERY: 'Proje teslimi',
   NEW_COMMENT: 'Yeni yorum',
+  APPROVAL_REQUEST: 'Onay talebi',
+  APPROVAL_RESPONSE: 'Onay yanıtı',
 } as const;
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 

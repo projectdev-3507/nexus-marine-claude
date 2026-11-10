@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, FileText, Eye, EyeOff, Trash2, Upload } from 'lucide-react';
+import { Plus, FileText, Eye, EyeOff, Trash2, Upload, Clock } from 'lucide-react';
+import { REPORT_TYPES, type ReportType } from '@nexus/shared';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, authedUrl, fileUrl, uploadFiles } from '../lib/api';
@@ -36,13 +37,29 @@ export default function Documents({ portal, embedded }: { portal?: boolean; embe
   return (
     <div>
       {!embedded && <PageHeader title={portal ? 'Belgelerim' : 'Belgeler ve Sözleşmeler'} sub={portal ? 'Sözleşmeler, sertifikalar ve onaylı teknik raporlar' : 'Sözleşme, sertifika, sigorta ve teknik belge arşivi'} actions={can('documents.manage') && <button className="btn btn-primary" onClick={() => setForm(true)}><Plus /> Belge ekle</button>} />}
-      {portal && reports.length > 0 && (
-        <Card title="Onaylı teknik raporlar" pad={false} className="mb-2">
-          {reports.map((r: any) => (
+      {portal && reports.some((r: any) => r.approvalStatus === 'PENDING') && (
+        <Card title={<span className="row" style={{ gap: 8 }}><Clock size={16} color="#e07b00" /> Onayınızı bekleyen belgeler</span>} pad={false} className="mb-2">
+          {reports.filter((r: any) => r.approvalStatus === 'PENDING').map((r: any) => (
+            <Link key={r.id} to={`/reports/${r.id}`} className="list-item clickable" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <FileText size={18} color="#e07b00" />
+              <div className="grow"><div className="strong">{r.title}</div><div className="xs muted">{REPORT_TYPES[r.type as ReportType]} · gönderim {fmtDate(r.approvalRequestedAt)}</div></div>
+              <span className="btn btn-sm btn-primary">İncele ve onayla</span>
+            </Link>
+          ))}
+        </Card>
+      )}
+      {portal && reports.filter((r: any) => r.approvalStatus !== 'PENDING').length > 0 && (
+        <Card title="Raporlar, teklif dosyaları ve protokoller" pad={false} className="mb-2">
+          {reports.filter((r: any) => r.approvalStatus !== 'PENDING').map((r: any) => (
             <div key={r.id} className="list-item">
               <FileText size={18} color="var(--navy)" />
-              <div className="grow"><Link to={`/reports/${r.id}`} className="strong">{r.title}</Link><div className="xs muted">{r.number} · {fmtDate(r.updatedAt)}</div></div>
-              <a className="btn btn-sm btn-primary" href={authedUrl(`/reports/${r.id}/pdf?download=1`)}>PDF indir</a>
+              <div className="grow">
+                <Link to={`/reports/${r.id}`} className="strong">{r.title}</Link>
+                <div className="xs muted">{r.number} · {fmtDate(r.updatedAt)}</div>
+              </div>
+              {r.approvalStatus === 'APPROVED' && <Badge tone="ok">Onaylandı</Badge>}
+              {r.approvalStatus === 'REJECTED' && <Badge tone="danger">Reddedildi</Badge>}
+              <a className="btn btn-sm" href={authedUrl(`/reports/${r.id}/pdf?download=1`)}>PDF</a>
             </div>
           ))}
         </Card>
