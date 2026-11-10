@@ -208,6 +208,7 @@ export const NOTIFICATION_TYPES = {
   QUOTE_SENT: 'Yeni teklif',
   CUSTOMER_REQUEST: 'Müşteri talebi',
   PROJECT_DELIVERY: 'Proje teslimi',
+  NEW_COMMENT: 'Yeni yorum',
 } as const;
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 

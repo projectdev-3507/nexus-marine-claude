@@ -20,6 +20,7 @@ const ICONS: Record<string, [any, string, string]> = {
   QUOTE_SENT: [Receipt, '#eaf3fc', '#1767AD'],
   CUSTOMER_REQUEST: [MessageSquare, '#fff3e2', '#e07b00'],
   PROJECT_DELIVERY: [Hammer, '#e8f7ee', '#16a34a'],
+  NEW_COMMENT: [MessageSquare, '#eaf3fc', '#1767AD'],
 };
 
 export default function Notifications() {

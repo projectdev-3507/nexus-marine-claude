@@ -80,10 +80,11 @@ Seed; 24 tekne, 18 müşteri, 70 iş emri, 55 bakım planı, M/Y ANY için 3 haf
 
 ## Üretim dağıtımı
 
-Tek Docker imajı API'yi ve derlenmiş web uygulamasını aynı origin'den sunar:
+Tek Docker imajı API'yi ve derlenmiş web uygulamasını aynı origin'den sunar; HTTPS için isteğe bağlı Caddy (`--profile https`) kullanılabilir. **Adım adım AWS kurulumu: [AWS-KURULUM.md](AWS-KURULUM.md)**
 
 ```bash
-JWT_SECRET=$(openssl rand -hex 32) CORS_ORIGINS=https://app.nexusmarine.com docker compose up -d --build
+cp .env.production.example .env   # JWT_SECRET, POSTGRES_PASSWORD, CORS_ORIGINS doldurun
+docker compose up -d --build
 ```
 
 İlk kurulumda yönetici hesabı için seed (veya doğrudan veritabanına kullanıcı ekleme):

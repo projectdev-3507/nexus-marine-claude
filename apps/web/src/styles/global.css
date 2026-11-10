@@ -497,3 +497,8 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .thumb-video .play svg { width: 16px; height: 16px; margin-left: 2px; fill: currentColor; }
 .lightbox video { max-width: 100%; max-height: 100%; border-radius: 8px; background: #000; cursor: auto; }
 .lightbox .lb-close { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border-radius: 12px; border: 0; background: rgba(255,255,255,.14); color: #fff; display: grid; place-items: center; cursor: pointer; }
+
+/* Panel: teknisyen durum kartları */
+.tech-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.tech-tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: #fafcfe; min-width: 0; }
+.tech-tile .grow { flex: 1; min-width: 0; }

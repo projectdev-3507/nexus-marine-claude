@@ -75,7 +75,8 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid g-main mt-3">
+      <div className="grid g-main mt-3 dash-main">
+        <div className="stack">
         <Card title="Haftalık Bakım Takvimi" action={<a className="link" onClick={() => nav('/calendar')} style={{ cursor: 'pointer' }}>Takvimi aç</a>}>
           <div className="week-grid">
             {days.map((d) => {
@@ -111,6 +112,61 @@ export default function Dashboard() {
           </div>
         </Card>
 
+        <div className="grid g-2 dash-charts">
+        <Card title="Aylık Servis İstatistikleri">
+          <div className="chart-box">
+            <ResponsiveContainer>
+              <BarChart data={data.monthly} margin={{ left: -24, right: 4, top: 8 }}>
+                <CartesianGrid vertical={false} stroke="#eef2f6" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
+                <Tooltip cursor={{ fill: '#f4f7fb' }} contentStyle={{ borderRadius: 10, border: '1px solid #e2e9f1' }} />
+                {Object.entries(CAT_COLORS).map(([k2, c], i, arr) => (
+                  <Bar key={k2} dataKey={k2} name={CATEGORY_SHORT[k2]} stackId="a" fill={c} radius={i === arr.length - 1 ? [6, 6, 0, 0] : 0} maxBarSize={34} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="legend">
+            {Object.entries(CAT_COLORS).map(([k2, c]) => (
+              <span key={k2}><i style={{ background: c }} />{CATEGORY_SHORT[k2]}</span>
+            ))}
+          </div>
+        </Card>
+        <Card title="İş Emirleri Durum Dağılımı">
+          <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ width: 170, height: 170, flex: 'none', position: 'relative', margin: '0 auto' }}>
+              <ResponsiveContainer>
+                <PieChart>
+                  <Pie data={data.statusDistribution} dataKey="count" nameKey="status" innerRadius={52} outerRadius={80} paddingAngle={2} strokeWidth={0}>
+                    {data.statusDistribution.map((s: any) => (
+                      <Cell key={s.status} fill={STATUS_COLORS[s.status]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number, n: string) => [v, WORK_ORDER_STATUS_LABELS[n as keyof typeof WORK_ORDER_STATUS_LABELS]]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--navy)' }}>{data.statusDistribution.reduce((s: number, x: any) => s + x.count, 0)}</div>
+                  <div className="xs muted">iş emri</div>
+                </div>
+              </div>
+            </div>
+            <div className="stack" style={{ gap: 6, flex: 1, minWidth: 150 }}>
+              {data.statusDistribution.map((s: any) => (
+                <div key={s.status} className="row small" style={{ cursor: 'pointer' }} onClick={() => nav(`/work-orders?status=${s.status}`)}>
+                  <span className="status-dot" style={{ background: STATUS_COLORS[s.status] }} />
+                  <span style={{ flex: 1 }}>{WORK_ORDER_STATUS_LABELS[s.status as keyof typeof WORK_ORDER_STATUS_LABELS]}</span>
+                  <b className="mono">{s.count}</b>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+        </div>
+        </div>
+
         <div className="stack">
           <Card title="Yaklaşan İşler" pad={false} action={<a className="link" style={{ cursor: 'pointer' }} onClick={() => nav('/work-orders?group=open')}>Tümü</a>}>
             {data.upcoming.length === 0 && <Empty title="Yaklaşan iş yok" />}
@@ -145,14 +201,13 @@ export default function Dashboard() {
           )}
         </div>
       </div>
-
-      <div className="grid g-3 mt-3">
-        {manager && (
-          <Card title="Teknisyen Durumları" pad={false} action={<a className="link" style={{ cursor: 'pointer' }} onClick={() => nav('/technicians')}>Tümü</a>}>
-            {data.technicians.slice(0, 7).map((t: any) => {
+      {manager && (
+        <Card className="mt-3" title="Teknisyen Durumları" action={<a className="link" style={{ cursor: 'pointer' }} onClick={() => nav('/technicians')}>Tümü</a>}>
+          <div className="tech-tiles">
+            {data.technicians.slice(0, 8).map((t: any) => {
               const [label, tone] = TECH_STATUS[t.status];
               return (
-                <div key={t.id} className="list-item">
+                <div key={t.id} className="tech-tile">
                   <Avatar name={t.name} />
                   <div className="grow">
                     <div className="strong truncate">{t.name}</div>
@@ -162,60 +217,9 @@ export default function Dashboard() {
                 </div>
               );
             })}
-          </Card>
-        )}
-        <Card title="Aylık Servis İstatistikleri" className={manager ? '' : 'g-span-2'}>
-          <div className="chart-box">
-            <ResponsiveContainer>
-              <BarChart data={data.monthly} margin={{ left: -24, right: 4, top: 8 }}>
-                <CartesianGrid vertical={false} stroke="#eef2f6" />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
-                <Tooltip cursor={{ fill: '#f4f7fb' }} contentStyle={{ borderRadius: 10, border: '1px solid #e2e9f1' }} />
-                {Object.entries(CAT_COLORS).map(([k2, c], i, arr) => (
-                  <Bar key={k2} dataKey={k2} name={CATEGORY_SHORT[k2]} stackId="a" fill={c} radius={i === arr.length - 1 ? [6, 6, 0, 0] : 0} maxBarSize={34} />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="legend">
-            {Object.entries(CAT_COLORS).map(([k2, c]) => (
-              <span key={k2}><i style={{ background: c }} />{CATEGORY_SHORT[k2]}</span>
-            ))}
           </div>
         </Card>
-        <Card title="İş Emirleri Durum Dağılımı">
-          <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ width: 170, height: 170, flex: 'none', position: 'relative' }}>
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie data={data.statusDistribution} dataKey="count" nameKey="status" innerRadius={52} outerRadius={80} paddingAngle={2} strokeWidth={0}>
-                    {data.statusDistribution.map((s: any) => (
-                      <Cell key={s.status} fill={STATUS_COLORS[s.status]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(v: number, n: string) => [v, WORK_ORDER_STATUS_LABELS[n as keyof typeof WORK_ORDER_STATUS_LABELS]]} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none', textAlign: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--navy)' }}>{data.statusDistribution.reduce((s: number, x: any) => s + x.count, 0)}</div>
-                  <div className="xs muted">iş emri</div>
-                </div>
-              </div>
-            </div>
-            <div className="stack" style={{ gap: 6, flex: 1, minWidth: 150 }}>
-              {data.statusDistribution.map((s: any) => (
-                <div key={s.status} className="row small" style={{ cursor: 'pointer' }} onClick={() => nav(`/work-orders?status=${s.status}`)}>
-                  <span className="status-dot" style={{ background: STATUS_COLORS[s.status] }} />
-                  <span style={{ flex: 1 }}>{WORK_ORDER_STATUS_LABELS[s.status as keyof typeof WORK_ORDER_STATUS_LABELS]}</span>
-                  <b className="mono">{s.count}</b>
-                </div>
-              ))}
-            </div>
-          </div>
-        </Card>
-      </div>
+      )}
       <p className="xs muted mt-3">Son güncelleme: {fmtDate(new Date(), { hour: '2-digit', minute: '2-digit' })}</p>
       <WorkOrderQuick id={quick} onClose={() => setQuick(null)} />
     </div>

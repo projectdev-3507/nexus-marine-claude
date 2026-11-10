@@ -1,0 +1,27 @@
+# Nexus Marine — HTTPS ters proxy
+# DOMAIN .env dosyasından gelir (ör. app.sirketiniz.com).
+# Caddy, Let's Encrypt sertifikasını otomatik alır ve yeniler.
+# Alan adınız henüz yoksa geçici olarak DOMAIN=:80 yazın (yalnızca HTTP).
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Büyük video yüklemeleri için (API sınırı 200 MB)
+	request_body {
+		max_size 250MB
+	}
+
+	reverse_proxy app:4000 {
+		# Uzun yüklemelerde bağlantının kopmaması için
+		transport http {
+			read_timeout 10m
+			write_timeout 10m
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}

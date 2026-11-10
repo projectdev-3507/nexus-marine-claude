@@ -7,7 +7,7 @@ import { ah, badRequest, forbidden, notFound } from '../lib/errors';
 import { assertVesselAccess, can, isTechOnly, requirePerm, vesselFilter, type AuthedRequest, type AuthUser } from '../lib/auth';
 import { paginate, paginationQuery, sortBy, zOptDate, zOptNum, zOptStr } from '../lib/validate';
 import { nextNumber } from '../lib/numbering';
-import { managerIds, notify } from '../services/notify';
+import { managerIds, notify, vesselClientUserIds } from '../services/notify';
 import { sanitizeWorkOrderForClient, transitionWorkOrder } from '../services/workorders';
 import { attachmentsFor } from './files';
 
@@ -301,16 +301,23 @@ workOrdersRouter.post(
       data: { workOrderId: wo.id, userId: req.user.id, body, internal: req.user.isStaff ? (internal ?? true) : false },
       include: { user: { select: { id: true, name: true } } },
     });
-    if (!req.user.isStaff) {
-      await notify(await managerIds(), {
-        type: 'CUSTOMER_REQUEST',
-        title: `Müşteri mesajı: ${wo.number}`,
-        body: body || 'Müşteri dosya ekledi',
+    // Yorum bildirimi: personel (yöneticiler + atanan teknisyen) her zaman; müşteri tarafı yalnızca dahili olmayan yorumlarda.
+    // Yorumu yazan kişi kendi bildirimini almaz.
+    const staffTargets = [...(await managerIds()), wo.technicianId];
+    const clientTargets = c.internal ? [] : await vesselClientUserIds(wo.vesselId);
+    const preview = body ? (body.length > 140 ? body.slice(0, 140) + '…' : body) : '📎 Fotoğraf / video / belge ekledi';
+    await notify(
+      [...staffTargets, ...clientTargets],
+      {
+        type: 'NEW_COMMENT',
+        title: `${req.user.name} yorum yaptı · ${wo.number}`,
+        body: `${wo.title}: ${preview}`,
         link: `/work-orders/${wo.id}`,
         entityType: 'WorkOrder',
         entityId: wo.id,
-      });
-    }
+      },
+      req.user.id,
+    );
     res.status(201).json(c);
   }),
 );
