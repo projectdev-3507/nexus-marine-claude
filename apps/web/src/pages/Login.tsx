@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ShieldCheck, Smartphone, Ship } from 'lucide-react';
 import { useAuth } from '../lib/auth';
-import { Logo, YachtArt } from '../components/brand';
+import { LogoMark, YachtArt } from '../components/brand';
 
 const DEMO = [
   ['admin@nexusmarine.com', 'Süper Admin'],
@@ -35,7 +35,7 @@ export default function Login() {
   return (
     <div className="login">
       <div className="login-art">
-        <Logo sub="Yacht Operations Platform" />
+        <div className="row" style={{ gap: 16, position: "relative", zIndex: 1 }}><LogoMark size={92} full /><div className="brand-text"><b style={{ color: "#fff", fontSize: 22 }}>NEXUS</b><span>Marin ve Yatçılık Hizmetleri</span></div></div>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <h2>Teknik operasyonlarınız tek platformda.</h2>
           <p>Bakım, servis, denetim, restorasyon ve müşteri süreçlerini web, iOS ve Android üzerinden gerçek zamanlı yönetin.</p>
@@ -52,7 +52,7 @@ export default function Login() {
         <form onSubmit={submit}>
           <div>
             <h1>Giriş yapın</h1>
-            <p className="muted mt-1">Nexus Marine hesabınızla oturum açın.</p>
+            <p className="muted mt-1">Nexus Marin hesabınızla oturum açın.</p>
           </div>
           {err && <div className="form-error">{err}</div>}
           <div className="field">

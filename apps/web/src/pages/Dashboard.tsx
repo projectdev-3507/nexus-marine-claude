@@ -9,18 +9,22 @@ import { YachtArt } from '../components/brand';
 import { WorkOrderQuick } from '../components/WorkOrderQuick';
 import { addDays, fmtDate, fmtTime, relTime, sameDay } from '../lib/format';
 import { PRIORITY_LABELS, PRIORITY_TONE, TECH_STATUS, WORK_ORDER_STATUS_LABELS, WO_TONE, CATEGORY_SHORT } from '../lib/labels';
+import { maintColor, useMaintCats } from '../lib/maintCats';
 
 const STATUS_COLORS: Record<string, string> = {
   REQUESTED: '#94a3b8', EVALUATION: '#8b6fe0', PLANNED: '#5b9bd8', ASSIGNED: '#1767AD', IN_PROGRESS: '#e07b00',
   TECHNICAL_REVIEW: '#6d4bd8', COMPLETED: '#16a34a', PUBLISHED: '#0f8a44', CLOSED: '#0b2342', ON_HOLD: '#f2b450', REVISION_REQUIRED: '#dc2626', CANCELLED: '#cbd5e1',
 };
-const CAT_COLORS = { MECHANICAL: '#0B2342', ELECTRICAL: '#1767AD', HAUL_OUT: '#5b9bd8', COSMETIC: '#a9cdf0' };
+
 
 export default function Dashboard() {
   const { user, manager, can } = useAuth();
   const nav = useNavigate();
   const { data } = useApi<any>('/dashboard', undefined, { refetchInterval: 60_000 });
   const [quick, setQuick] = useState<string | null>(null);
+  const cats = useMaintCats();
+  // Grafikte görünen başlıklar: etkin olanlar + son 6 ayda işi olan pasifler
+  const catColors = cats.all.filter((c) => c.isActive || (data?.monthly ?? []).some((m: any) => m[c.key])).map((c, i) => [c.key, c.color || maintColor(c.key, i)] as [string, string]);
   if (!data) return <Loading />;
   const k = data.kpis;
   const hour = new Date().getHours();
@@ -48,6 +52,11 @@ export default function Dashboard() {
           {can('workorders.manage') && (
             <button className="btn btn-primary" onClick={() => nav('/work-orders?new=1')}>
               <Plus /> Yeni İş Emri
+            </button>
+          )}
+          {can('maintenance.manage') && (
+            <button className="btn btn-light" onClick={() => nav('/maintenance?new=1')}>
+              <CalendarCheck /> Bakım Planla
             </button>
           )}
           {can('inspections.perform') && (
@@ -121,14 +130,14 @@ export default function Dashboard() {
                 <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={12} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={12} />
                 <Tooltip cursor={{ fill: '#f4f7fb' }} contentStyle={{ borderRadius: 10, border: '1px solid #e2e9f1' }} />
-                {Object.entries(CAT_COLORS).map(([k2, c], i, arr) => (
+                {catColors.map(([k2, c], i, arr) => (
                   <Bar key={k2} dataKey={k2} name={CATEGORY_SHORT[k2]} stackId="a" fill={c} radius={i === arr.length - 1 ? [6, 6, 0, 0] : 0} maxBarSize={34} />
                 ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
           <div className="legend">
-            {Object.entries(CAT_COLORS).map(([k2, c]) => (
+            {catColors.map(([k2, c]) => (
               <span key={k2}><i style={{ background: c }} />{CATEGORY_SHORT[k2]}</span>
             ))}
           </div>

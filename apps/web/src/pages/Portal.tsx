@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CalendarClock, ClipboardList, MapPin, Anchor, Wrench, AlertTriangle, Hammer, ChevronRight, CheckCircle2, MessageSquarePlus, Receipt, Camera, Ship, FileSignature } from 'lucide-react';
-import { MAINTENANCE_CATEGORY_KEYS, PRIORITIES } from '@nexus/shared';
+import { PRIORITIES } from '@nexus/shared';
+import { activeMaintCats } from '../lib/maintCats';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, fileUrl, uploadFiles } from '../lib/api';
@@ -29,7 +30,7 @@ export function PortalHome() {
   const approvals = useApi<any>('/reports', { approval: 'PENDING' }).data?.items ?? [];
   const uploadCover = useAction((files: File[]) => uploadFiles('VESSEL', vesselId!, files, { caption: 'Kapak' }), { success: 'Tekne fotoğrafı güncellendi' });
   if (!vessels) return <Loading />;
-  if (!vessels.length) return <Card><Empty title="Hesabınıza bağlı tekne bulunmuyor" text="Lütfen Nexus Marine operasyon ekibiyle iletişime geçin." /></Card>;
+  if (!vessels.length) return <Card><Empty title="Hesabınıza bağlı tekne bulunmuyor" text="Lütfen Nexus Marin operasyon ekibiyle iletişime geçin." /></Card>;
   // Kapak yalnızca tekneye yüklenen fotoğraftır; iş emri fotoğrafları kapak olmaz
   const cover = photos.find((p) => p.mimeType.startsWith('image/') && p.entityType === 'VESSEL');
   const open = wos.filter((w: any) => !['CLOSED', 'CANCELLED', 'PUBLISHED'].includes(w.status));
@@ -241,7 +242,7 @@ export function PortalRequest() {
           <div className="form-grid">
             <Field label="Tekne"><select className="select" value={f.vesselId || vessels[0]?.id || ''} onChange={(e) => setF({ ...f, vesselId: e.target.value })}>{vessels.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
             {type === 'service' ? (
-              <Field label="Bakım türü"><select className="select" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Belirtmek istemiyorum</option>{MAINTENANCE_CATEGORY_KEYS.map((k) => <option key={k} value={k}>{CATEGORY_LABELS[k]}</option>)}</select></Field>
+              <Field label="Bakım türü"><select className="select" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}><option value="">Belirtmek istemiyorum</option>{activeMaintCats().map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select></Field>
             ) : (
               <Field label="Aciliyet"><select className="select" value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>{PRIORITIES.map((p) => <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>)}</select></Field>
             )}

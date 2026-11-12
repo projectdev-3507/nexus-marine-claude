@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, ClipboardList, Gauge, CalendarClock, Trash2 } from 'lucide-react';
-import { MAINTENANCE_CATEGORIES, MAINTENANCE_CATEGORY_KEYS, MAINTENANCE_STATUSES, PRIORITIES } from '@nexus/shared';
+import { Plus, ClipboardList, Gauge, CalendarClock, Trash2, Pencil } from 'lucide-react';
+import { MAINTENANCE_STATUSES, PRIORITIES } from '@nexus/shared';
+import { maintItems, useMaintCats, type MaintCat } from '../lib/maintCats';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
-import { Badge, Card, DataTable, Field, Modal, PageHeader, Pager, SearchInput, StatusBadge, Tabs, type Column } from '../components/ui';
+import { Badge, Card, DataTable, Field, Modal, PageHeader, Pager, SearchInput, StatusBadge, type Column } from '../components/ui';
 import { usePeople, useVesselOptions } from '../lib/lookups';
 import { fmtDate, fmtNum, toInputDate } from '../lib/format';
+import '../styles/doc.css';
 import { CATEGORY_LABELS, CATEGORY_SHORT, MAINTENANCE_STATUS_LABELS, MAINT_TONE, PRIORITY_LABELS, PRIORITY_TONE, WORK_ORDER_STATUS_LABELS, WO_TONE } from '../lib/labels';
 
 export default function Maintenance() {
@@ -21,6 +23,9 @@ export default function Maintenance() {
   const creating = sp.get('new') === '1';
   const { data, isLoading } = useApi<any>('/maintenance', { ...ls.query, category: cat === 'ALL' ? undefined : cat, status: status || undefined });
   const close = () => setSp({}, { replace: true });
+  const cats = useMaintCats();
+  const [catModal, setCatModal] = useState<MaintCat | 'new' | null>(null);
+  const manageCats = can('maintenance.manage');
 
   const cols: Column<any>[] = [
     { key: 'plannedDate', label: 'Planlanan', sortable: true, render: (m) => <div><b>{fmtDate(m.plannedDate)}</b>{m.dueEngineHours != null && <div className="cell-sub row" style={{ gap: 4 }}><Gauge size={12} /> {fmtNum(m.engine?.hours)} / {fmtNum(m.dueEngineHours)} s</div>}</div> },
@@ -34,7 +39,17 @@ export default function Maintenance() {
   return (
     <div>
       <PageHeader title="Bakım Yönetimi" sub="Tarih ve motor çalışma saati bazlı periyodik bakım planlama" actions={can('maintenance.manage') && <><button className="btn" onClick={() => nav('/calendar')}><CalendarClock /> Takvimden planla</button><button className="btn btn-primary" onClick={() => setSp({ new: '1' })}><Plus /> Bakım Planla</button></>} />
-      <Tabs value={cat} onChange={setCat} tabs={[{ key: 'ALL', label: 'Tümü' }, ...MAINTENANCE_CATEGORY_KEYS.map((k) => ({ key: k, label: CATEGORY_LABELS[k] }))]} />
+      {/* Başlıklar: üzerine gelince kalem (düzenle), en sonda + (yeni başlık) */}
+      <div className="tabs maint-tabs" role="tablist">
+        <button role="tab" className={`tab${cat === 'ALL' ? ' active' : ''}`} onClick={() => setCat('ALL')}>Tümü</button>
+        {cats.active.map((c) => (
+          <button key={c.key} role="tab" className={`tab${cat === c.key ? ' active' : ''}`} onClick={() => setCat(c.key)}>
+            {c.label}
+            {manageCats && <span className="tab-edit" role="button" title="Başlığı düzenle" onClick={(e) => { e.stopPropagation(); setCatModal(c); }}><Pencil /></span>}
+          </button>
+        ))}
+        {manageCats && <button className="tab tab-add" title="Yeni başlık" onClick={() => setCatModal('new')}><Plus /></button>}
+      </div>
       <Card pad={false}>
         <div className="toolbar">
           <SearchInput value={ls.q} onChange={ls.setQ} placeholder="Bakım veya tekne ara..." />
@@ -47,6 +62,7 @@ export default function Maintenance() {
         <DataTable columns={cols} rows={data?.items ?? []} loading={isLoading} sort={ls.sort} onSort={ls.onSort} onRowClick={(m) => setSp({ id: m.id })} />
         {data && <Pager page={ls.page} pageSize={25} total={data.total} onPage={ls.setPage} />}
       </Card>
+      {catModal && <MaintCategoryModal cat={catModal === 'new' ? null : catModal} onClose={() => setCatModal(null)} onSaved={(c) => setCat(c?.key ?? 'ALL')} />}
       {(creating || editId) && <MaintenanceForm id={editId} defaults={{ vesselId: sp.get('vesselId') ?? '', plannedDate: sp.get('date') ?? '' }} onClose={close} />}
     </div>
   );
@@ -76,7 +92,8 @@ export function MaintenanceForm({ id, defaults = {}, onClose }: { id?: string | 
   );
   const toWO = useAction(() => api(`/maintenance/${id}/work-order`, { body: {} }), { success: 'İş emri oluşturuldu', onSuccess: (w) => nav(`/work-orders/${w.id}`) });
   const del = useAction(() => api(`/maintenance/${id}`, { method: 'DELETE' }), { success: 'Bakım planı silindi', onSuccess: onClose });
-  const items = MAINTENANCE_CATEGORIES[f.category as keyof typeof MAINTENANCE_CATEGORIES]?.items ?? [];
+  const cats = useMaintCats();
+  const items = maintItems(f.category);
   const setMat = (i: number, k: string, v: string) => setF({ ...f, plannedMaterials: f.plannedMaterials.map((m: any, j: number) => (j === i ? { ...m, [k]: v } : m)) });
 
   return (
@@ -91,7 +108,7 @@ export function MaintenanceForm({ id, defaults = {}, onClose }: { id?: string | 
     }>
       <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0 }}>
         <div className="form-grid cols-3">
-          <Field label="Kategori *"><select className="select" value={f.category} onChange={set('category')}>{MAINTENANCE_CATEGORY_KEYS.map((k) => <option key={k} value={k}>{CATEGORY_LABELS[k]}</option>)}</select></Field>
+          <Field label="Kategori *"><select className="select" value={f.category} onChange={set('category')}>{cats.all.filter((c) => c.isActive || c.key === f.category).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select></Field>
           <Field label="Bakım türü"><select className="select" value={f.subType ?? ''} onChange={(e) => setF({ ...f, subType: e.target.value, title: f.title || e.target.value })}><option value="">— Seçin —</option>{items.map((i) => <option key={i}>{i}</option>)}</select></Field>
           <Field label="Tekne *"><select className="select" value={f.vesselId} onChange={set('vesselId')}><option value="">— Seçin —</option>{vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
           <Field label="Bakım adı *" full><input className="input" value={f.title} onChange={set('title')} /></Field>
@@ -136,6 +153,49 @@ export function MaintenanceForm({ id, defaults = {}, onClose }: { id?: string | 
         ))}
         <div className="mt-2"><Field label="Teknik notlar"><textarea className="textarea" value={f.technicalNotes ?? ''} onChange={set('technicalNotes')} /></Field></div>
       </fieldset>
+    </Modal>
+  );
+}
+
+const COLORS = ['#0B2342', '#1767AD', '#5B9BD8', '#A9CDF0', '#0E9488', '#6D4BD8', '#E07B00', '#DC2626'];
+
+/** Bakım başlığı ekle / düzenle / kaldır: ad, kısa ad, alt bakım türleri ve renk */
+function MaintCategoryModal({ cat, onClose, onSaved }: { cat: MaintCat | null; onClose: () => void; onSaved: (c: MaintCat | null) => void }) {
+  const [f, setF] = useState({ label: cat?.label ?? '', short: cat?.short ?? '', color: cat?.color ?? COLORS[1], items: (cat?.items ?? []).join('\n') });
+  const body = () => ({ label: f.label, short: f.short || undefined, color: f.color, items: f.items.split('\n').map((x) => x.trim()).filter(Boolean) });
+  const save = useAction(() => (cat ? api<MaintCat>(`/maintenance-categories/${cat.key}`, { method: 'PUT', body: body() }) : api<MaintCat>('/maintenance-categories', { body: body() })), {
+    success: cat ? 'Başlık güncellendi' : 'Yeni başlık eklendi',
+    onSuccess: (c) => { onClose(); onSaved(c); },
+  });
+  const del = useAction(() => api<any>(`/maintenance-categories/${cat!.key}`, { method: 'DELETE' }), {
+    success: 'Başlık kaldırıldı',
+    onSuccess: () => { onClose(); onSaved(null); },
+  });
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={cat ? 'Bakım başlığını düzenle' : 'Yeni bakım başlığı'}
+      footer={
+        <>
+          {cat && <button className="btn btn-ghost" style={{ color: 'var(--danger)', marginRight: 'auto' }} onClick={() => confirm(`"${cat.label}" başlığı kaldırılsın mı?\nBu başlıktaki mevcut bakım ve iş emirleri silinmez; başlık yalnızca seçim listelerinden kalkar.`) && del.mutate(undefined)}><Trash2 /> Kaldır</button>}
+          <button className="btn" onClick={onClose}>Vazgeç</button>
+          <button className="btn btn-primary" disabled={f.label.trim().length < 2 || save.isPending} onClick={() => save.mutate(undefined)}>{cat ? 'Kaydet' : 'Ekle'}</button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <Field label="Başlık adı *" full><input className="input" autoFocus value={f.label} placeholder="Ör. Klima ve Soğutma Bakımları" onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+        <Field label="Kısa ad" hint="Listelerde ve grafiklerde görünür"><input className="input" value={f.short} placeholder="Ör. Klima" onChange={(e) => setF({ ...f, short: e.target.value })} /></Field>
+        <Field label="Renk" hint="Grafiklerde">
+          <div className="row-wrap" style={{ gap: 6 }}>
+            {COLORS.map((c) => <button key={c} type="button" className={`color-dot${f.color.toUpperCase() === c ? ' on' : ''}`} style={{ background: c }} onClick={() => setF({ ...f, color: c })} aria-label={c} />)}
+          </div>
+        </Field>
+        <Field label="Bakım türleri (her satıra bir tane)" full hint="Bakım planlarken 'Bakım türü' listesinde öneri olarak çıkar">
+          <textarea className="textarea" rows={7} value={f.items} placeholder={'Klima gazı kontrolü\nFiltre temizliği\nKompresör kontrolü'} onChange={(e) => setF({ ...f, items: e.target.value })} />
+        </Field>
+      </div>
     </Modal>
   );
 }

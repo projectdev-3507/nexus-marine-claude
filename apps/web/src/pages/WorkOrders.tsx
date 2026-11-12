@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
-import { MAINTENANCE_CATEGORIES, MAINTENANCE_CATEGORY_KEYS, PRIORITIES, WORK_ORDER_STATUSES } from '@nexus/shared';
+import { PRIORITIES, WORK_ORDER_STATUSES } from '@nexus/shared';
+import { activeMaintCats, maintItems, useMaintCats } from '../lib/maintCats';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api } from '../lib/api';
@@ -21,7 +22,8 @@ export default function WorkOrders() {
   const status = sp.get('status') ?? '';
   const [priority, setPriority] = useState('');
   const [category, setCategory] = useState('');
-  const [technicianId, setTechnicianId] = useState('');
+  // Teknisyen filtresi adreste tutulur: Teknisyenler → "İşleri" bağlantısı seçili gelir
+  const technicianId = sp.get('technicianId') ?? '';
   const techs = usePeople('TECHNICIAN');
   const creating = sp.get('new') === '1';
   const { data, isLoading } = useApi<any>('/work-orders', { ...ls.query, group: group || undefined, status: status || undefined, priority: priority || undefined, category: category || undefined, technicianId: technicianId || undefined });
@@ -69,10 +71,10 @@ export default function WorkOrders() {
           </select>
           <select className="select sm" style={{ width: 150 }} value={category} onChange={(e) => setCategory(e.target.value)}>
             <option value="">Kategori</option>
-            {MAINTENANCE_CATEGORY_KEYS.map((c) => <option key={c} value={c}>{CATEGORY_SHORT[c]}</option>)}
+            {activeMaintCats().map((c) => <option key={c.key} value={c.key}>{c.short}</option>)}
           </select>
           {can('workorders.assign') && (
-            <select className="select sm" style={{ width: 170 }} value={technicianId} onChange={(e) => setTechnicianId(e.target.value)}>
+            <select className="select sm" style={{ width: 170 }} value={technicianId} onChange={(e) => setParam('technicianId', e.target.value)}>
               <option value="">Tüm teknisyenler</option>
               {techs.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
@@ -105,7 +107,8 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
     },
     { success: initial?.id ? 'İş emri güncellendi' : 'Kayıt oluşturuldu', onSuccess: (r) => { onClose(); onCreated?.(r); } },
   );
-  const suggestions = f.category ? MAINTENANCE_CATEGORIES[f.category as keyof typeof MAINTENANCE_CATEGORIES].items : [];
+  useMaintCats();
+  const suggestions = maintItems(f.category);
   return (
     <Modal open onClose={onClose} size="lg" title={initial?.id ? 'İş emrini düzenle' : manager ? 'Yeni iş emri' : 'Yeni servis / bakım talebi'} footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.vesselId || f.title.length < 2 || save.isPending} onClick={() => save.mutate(undefined)}>Kaydet</button></>}>
       <div className="form-grid">
@@ -118,7 +121,7 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
         <Field label="Bakım kategorisi">
           <select className="select" value={f.category ?? ''} onChange={set('category')}>
             <option value="">— Seçin —</option>
-            {MAINTENANCE_CATEGORY_KEYS.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+            {activeMaintCats().map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </Field>
         <Field label="İş başlığı *" full>

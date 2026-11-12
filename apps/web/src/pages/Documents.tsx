@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, FileText, Eye, EyeOff, Trash2, Upload, Clock } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, FileText, Eye, EyeOff, Trash2, Upload, Clock, FileSignature } from 'lucide-react';
 import { REPORT_TYPES, type ReportType } from '@nexus/shared';
 import { useApi, useAction, useListState } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
@@ -10,8 +10,9 @@ import { useCustomerOptions, useVesselOptions } from '../lib/lookups';
 import { fmtDate } from '../lib/format';
 import { DOC_CATEGORY_LABELS } from '../lib/labels';
 
-export default function Documents({ portal, embedded }: { portal?: boolean; embedded?: boolean }) {
+export default function Documents({ portal, embedded, editable }: { portal?: boolean; embedded?: boolean; editable?: boolean }) {
   const { can } = useAuth();
+  const nav = useNavigate();
   const ls = useListState();
   const [category, setCategory] = useState('');
   const [form, setForm] = useState(false);
@@ -29,6 +30,7 @@ export default function Documents({ portal, embedded }: { portal?: boolean; embe
     { key: 'a', label: '', align: 'right', render: (d) => (
       <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
         {d.attachment && <a className="btn btn-sm" href={fileUrl(d.attachment.id)} target="_blank" rel="noreferrer">Aç</a>}
+        {editable && can('reports.manage') && d.vessel?.id && <button className="btn btn-sm" title="Bu belge için örnek şablondan düzenlenebilir sözleşme oluştur" onClick={() => nav('/contracts?new=1&type=DELIVERY_PROTOCOL&vesselId=' + d.vessel.id + '&title=' + encodeURIComponent(d.title))}><FileSignature /> Şablondan düzenle</button>}
         {can('documents.manage') && <button className="btn btn-sm btn-ghost btn-icon" title="Müşteri görünürlüğü" onClick={() => toggle.mutate(d)}>{d.customerVisible ? <EyeOff /> : <Eye />}</button>}
         {can('documents.manage') && <button className="btn btn-sm btn-ghost btn-icon" onClick={() => confirm('Belge silinsin mi?') && del.mutate(d)}><Trash2 /></button>}
       </div>
@@ -68,6 +70,7 @@ export default function Documents({ portal, embedded }: { portal?: boolean; embe
         <div className="toolbar">
           <SearchInput value={ls.q} onChange={ls.setQ} />
           <select className="select sm" style={{ width: 170 }} value={category} onChange={(e) => setCategory(e.target.value)}><option value="">Tüm kategoriler</option>{Object.entries(DOC_CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          {embedded && !portal && can('documents.manage') && <><span className="spacer" /><button className="btn btn-sm btn-primary" onClick={() => setForm(true)}><Upload /> Dosya yükle</button></>}
         </div>
         <DataTable columns={cols} rows={data?.items ?? []} loading={isLoading} />
         {data && <Pager page={ls.page} pageSize={25} total={data.total} onPage={ls.setPage} />}

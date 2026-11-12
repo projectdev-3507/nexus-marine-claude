@@ -54,11 +54,19 @@ enum MaintenanceStatus {
   CANCELLED
 }
 
-enum MaintenanceCategory {
-  MECHANICAL
-  ELECTRICAL
-  HAUL_OUT
-  COSMETIC
+/// Bakım başlıkları (kategoriler) — Bakım Yönetimi'nden eklenir / düzenlenir.
+/// Yerleşik anahtarlar: MECHANICAL, ELECTRICAL, HAUL_OUT, COSMETIC
+model MaintCategory {
+  key       String   @id
+  label     String
+  short     String
+  items     String[]
+  color     String   @default("#1767AD")
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  builtIn   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum InspectionStatus {
@@ -87,6 +95,8 @@ enum ReportType {
   TEAK_CARPENTRY
   DELIVERY_PROTOCOL
   PROJECT_PROPOSAL
+  WEEKLY_SERVICE
+  CUSTOM
 }
 
 enum ReportStatus {
@@ -271,7 +281,7 @@ model Engine {
 model MaintenancePlan {
   id             String              @id @default(cuid())
   title          String
-  category       MaintenanceCategory
+  category       String
   subType        String?
   vesselId       String
   vessel         Vessel              @relation(fields: [vesselId], references: [id], onDelete: Cascade)
@@ -315,7 +325,7 @@ model WorkOrder {
   requestedBy   User?           @relation("WORequester", fields: [requestedById], references: [id])
   title         String
   description   String?
-  category      MaintenanceCategory?
+  category      String?
   priority      Priority        @default(MEDIUM)
   status        WorkOrderStatus @default(REQUESTED)
   technicianId  String?
@@ -418,6 +428,8 @@ model Inspection {
   pumpOutDone     Boolean          @default(false)
   /// Denetimi yapan kaptan / enspektörün görevi
   inspectorTitle  String?
+  /// Denetimi yapan kaptan / enspektörün adı (boşsa denetçi kullanıcının adı)
+  inspectorName   String?
   submittedAt     DateTime?
   approvedById    String?
   approvedAt      DateTime?
@@ -493,6 +505,15 @@ model Report {
   approvalDecidedById String?
   approvalDecidedBy   String?
   approvalNote        String?
+  /// Otomatik dönem raporları için anahtar (ör. haftalık: 2026-W45)
+  periodKey           String?
+  /// Rapor başlığı (dinamik kategori)
+  categoryId          String?
+  /// Finans ve tahsilat: sözleşme bedeli ve ödeme durumu
+  contractAmount      Float?
+  contractCurrency    String       @default("EUR")
+  paidAt              DateTime?
+  paidBy              String?
   createdById     String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
@@ -500,6 +521,42 @@ model Report {
   versions ReportVersion[]
 
   @@index([vesselId])
+  @@index([vesselId, periodKey])
+  @@index([categoryId])
+}
+
+/// Rapor / sözleşme başlıkları (dinamik kategoriler) — Raporlar ve Sözleşmeler sayfalarındaki kartlar
+model ReportCategory {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  tone        String     @default("blue")
+  /// Belgenin düzeni (yerleşik tür veya CUSTOM = serbest başlıklı belge)
+  baseType    ReportType
+  /// reports | contracts
+  group       String     @default("reports")
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  builtIn     Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+/// Standart rapor / sözleşme şablonları — yeni belge bu içerikle başlar
+model ReportTemplate {
+  id          String     @id @default(cuid())
+  name        String
+  type        ReportType
+  description String?
+  data        Json
+  isDefault   Boolean    @default(false)
+  /// Şablonun ait olduğu rapor başlığı (kategori)
+  categoryId  String?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([type])
 }
 
 /// Rapor sürümleri. Onaylı bir rapor düzenlendiğinde yeni sürüm oluşturulur.
@@ -666,7 +723,13 @@ model Payment {
   date       DateTime @default(now())
   method     String?
   note       String?
+  /// Tahsilat makbuzu numarası (TAH-2026-0001) ve bağlı sözleşme
+  number     String?  @unique
+  reportId   String?
+  receivedBy String?
   createdAt  DateTime @default(now())
+
+  @@index([reportId])
 }
 
 model PaymentInstallment {

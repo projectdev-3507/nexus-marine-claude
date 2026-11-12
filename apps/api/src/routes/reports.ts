@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { APPROVAL_REPORT_TYPES, REPORT_TYPES, HULL_RESTORATION_PHASES, protocolTemplate, proposalTemplate, scrapingTemplate, type ReportType } from '@nexus/shared';
+import { APPROVAL_REPORT_TYPES, REPORT_TYPES, HULL_RESTORATION_PHASES, customTemplate, migrateSections, protocolTemplate, proposalTemplate, scrapingSections, type ReportType } from '@nexus/shared';
 import { prisma } from '../db';
 import { ah, badRequest, notFound } from '../lib/errors';
 import { assertVesselAccess, requirePerm, vesselFilter, type AuthedRequest, type AuthUser } from '../lib/auth';
@@ -10,6 +10,7 @@ import { nextNumber } from '../lib/numbering';
 import { CLAUSE_CATALOG, reportPdf } from '../services/pdf';
 import { managerIds, notify, vesselClientUserIds } from '../services/notify';
 import { audit } from '../lib/audit';
+import { upsertWeeklyReport, weekStartOf } from '../services/weekly';
 
 export const reportsRouter = Router();
 
@@ -21,40 +22,160 @@ function scope(user: AuthUser): Prisma.ReportWhereInput {
 
 reportsRouter.get('/clauses', (_req, res) => res.json(CLAUSE_CATALOG));
 
+// ───────────────────────── Rapor başlıkları (kategoriler) ─────────────────────────
+const BUILTIN: { type: ReportType; group: string; tone: string; sortOrder: number; description: string }[] = [
+  { type: 'WEEKLY_SERVICE', group: 'reports', tone: 'teal', sortOrder: 1, description: 'İş emirlerinden otomatik' },
+  { type: 'POST_SCRAPING', group: 'reports', tone: 'violet', sortOrder: 2, description: 'Bulgular ve başlıklar serbest' },
+  { type: 'HULL_RESTORATION', group: 'reports', tone: 'navy', sortOrder: 3, description: 'Aşamalar ve ilerleme' },
+  { type: 'TEAK_CARPENTRY', group: 'reports', tone: 'amber', sortOrder: 4, description: 'Alan / m² tablosu' },
+  { type: 'DELIVERY_PROTOCOL', group: 'contracts', tone: 'blue', sortOrder: 1, description: 'Teslim, garanti ve ibra' },
+  { type: 'PROJECT_PROPOSAL', group: 'contracts', tone: 'violet', sortOrder: 2, description: 'Gerekçe, kapsam ve süre' },
+];
+let builtinsReady = false;
+/** Hazır başlıkları ilk kullanımda oluşturur, kategorisi olmayan belge ve şablonları bağlar */
+async function ensureCategories() {
+  if (!builtinsReady) {
+    const have = await prisma.reportCategory.findMany({ where: { builtIn: true }, select: { baseType: true } });
+    const missing = BUILTIN.filter((b) => !have.some((h) => h.baseType === b.type));
+    if (missing.length) await prisma.reportCategory.createMany({ data: missing.map((b) => ({ name: REPORT_TYPES[b.type], description: b.description, tone: b.tone, baseType: b.type, group: b.group, sortOrder: b.sortOrder, builtIn: true })) });
+    builtinsReady = true;
+  }
+  const cats = await prisma.reportCategory.findMany({ where: { builtIn: true } });
+  for (const c of cats) {
+    await prisma.report.updateMany({ where: { categoryId: null, type: c.baseType }, data: { categoryId: c.id } });
+    await prisma.reportTemplate.updateMany({ where: { categoryId: null, type: c.baseType }, data: { categoryId: c.id } });
+  }
+}
+
+reportsRouter.get(
+  '/categories',
+  requirePerm('reports.view', 'reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    await ensureCategories();
+    const group = z.string().optional().parse(req.query.group);
+    const cats = await prisma.reportCategory.findMany({ where: { isActive: true, ...(group ? { group } : {}) }, orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }] });
+    const [byCat, pending] = await Promise.all([
+      prisma.report.groupBy({ by: ['categoryId'], where: { ...scope(req.user), categoryId: { in: cats.map((c) => c.id) } }, _count: true }),
+      prisma.report.groupBy({ by: ['categoryId'], where: { ...scope(req.user), categoryId: { in: cats.map((c) => c.id) }, approvalStatus: 'PENDING' }, _count: true }),
+    ]);
+    const cnt = Object.fromEntries(byCat.map((b) => [b.categoryId, b._count]));
+    const pen = Object.fromEntries(pending.map((b) => [b.categoryId, b._count]));
+    res.json(cats.map((c) => ({ ...c, count: cnt[c.id] ?? 0, pending: pen[c.id] ?? 0 })));
+  }),
+);
+
+const categoryBody = z.object({ name: z.string().trim().min(2), description: zOptStr, tone: z.string().optional(), group: z.enum(['reports', 'contracts']).default('reports'), fromCategoryId: zOptStr, sortOrder: z.number().int().optional() });
+
+/** Yeni rapor başlığı: boş (serbest bölümlü) ya da var olan bir başlığın şablonundan */
+reportsRouter.post(
+  '/categories',
+  requirePerm('reports.approve'),
+  ah<AuthedRequest>(async (req, res) => {
+    const body = categoryBody.parse(req.body);
+    const from = body.fromCategoryId ? await prisma.reportCategory.findUnique({ where: { id: body.fromCategoryId } }) : null;
+    if (from?.baseType === 'WEEKLY_SERVICE' || from?.baseType === 'INSPECTION') throw badRequest('Otomatik oluşturulan raporlar kopyalanamaz');
+    const last = await prisma.reportCategory.aggregate({ where: { group: body.group }, _max: { sortOrder: true } });
+    const cat = await prisma.reportCategory.create({
+      data: { name: body.name, description: body.description ?? null, tone: body.tone ?? from?.tone ?? 'navy', group: body.group, baseType: from?.baseType ?? 'CUSTOM', sortOrder: (last._max.sortOrder ?? 0) + 1 },
+    });
+    // Kaynak başlığın varsayılan şablonu yeni başlığa da varsayılan olarak kopyalanır
+    if (from) {
+      const tpl = await prisma.reportTemplate.findFirst({ where: { categoryId: from.id, isDefault: true } });
+      if (tpl) await prisma.reportTemplate.create({ data: { name: body.name, type: tpl.type, data: tpl.data as Prisma.InputJsonValue, isDefault: true, categoryId: cat.id, createdById: req.user.id } });
+    }
+    await audit(req.user.id, 'category.create', 'ReportCategory', cat.id, { name: cat.name });
+    res.status(201).json(cat);
+  }),
+);
+
+reportsRouter.put(
+  '/categories/:cid',
+  requirePerm('reports.approve'),
+  ah(async (req, res) => {
+    const body = categoryBody.omit({ fromCategoryId: true, group: true }).partial().parse(req.body);
+    res.json(await prisma.reportCategory.update({ where: { id: req.params.cid }, data: { name: body.name, description: body.description, tone: body.tone, sortOrder: body.sortOrder } }));
+  }),
+);
+
+/** Başlığı kaldır: belgesi varsa gizlenir (belgeler korunur), yoksa silinir */
+reportsRouter.delete(
+  '/categories/:cid',
+  requirePerm('reports.approve'),
+  ah<AuthedRequest>(async (req, res) => {
+    const cat = await prisma.reportCategory.findUniqueOrThrow({ where: { id: req.params.cid } });
+    const used = await prisma.report.count({ where: { categoryId: cat.id } });
+    if (used || cat.builtIn) await prisma.reportCategory.update({ where: { id: cat.id }, data: { isActive: false } });
+    else {
+      await prisma.reportTemplate.deleteMany({ where: { categoryId: cat.id } });
+      await prisma.reportCategory.delete({ where: { id: cat.id } });
+    }
+    await audit(req.user.id, 'category.delete', 'ReportCategory', cat.id, { name: cat.name, hidden: !!(used || cat.builtIn) });
+    res.json({ ok: true, hidden: !!(used || cat.builtIn) });
+  }),
+);
+
+/** Tür başına belge sayıları ve onay bekleyenler (kategori kartları için) */
+reportsRouter.get(
+  '/counts',
+  requirePerm('reports.view', 'reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const [byType, pending] = await Promise.all([
+      prisma.report.groupBy({ by: ['type'], where: scope(req.user), _count: true }),
+      prisma.report.groupBy({ by: ['type'], where: { ...scope(req.user), approvalStatus: 'PENDING' }, _count: true }),
+    ]);
+    res.json({
+      byType: Object.fromEntries(byType.map((b) => [b.type, b._count])),
+      pendingByType: Object.fromEntries(pending.map((b) => [b.type, b._count])),
+    });
+  }),
+);
+
 reportsRouter.get(
   '/',
   requirePerm('reports.view', 'reports.manage'),
   ah<AuthedRequest>(async (req, res) => {
     const q = paginationQuery
-      .extend({ vesselId: z.string().optional(), type: z.enum(TYPE_KEYS).optional(), status: z.string().optional(), projectId: z.string().optional(), approval: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional() })
+      .extend({ vesselId: z.string().optional(), type: z.enum(TYPE_KEYS).optional(), status: z.string().optional(), projectId: z.string().optional(), approval: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(), types: z.string().optional(), categoryIds: z.string().optional(), vesselIds: z.string().optional(), statuses: z.string().optional(), approvals: z.string().optional() })
       .parse(req.query);
+    if (q.categoryIds) await ensureCategories();
+    const list = (v?: string) => (v ? v.split(',').filter(Boolean) : []);
+    const approvals = list(q.approvals);
     const where: Prisma.ReportWhereInput = {
       ...scope(req.user),
       ...(q.approval ? { approvalStatus: q.approval } : {}),
+      ...(approvals.length ? { OR: [...(approvals.includes('NONE') ? [{ approvalStatus: null }] : []), { approvalStatus: { in: approvals.filter((a) => a !== 'NONE') as any } }] } : {}),
+      ...(q.categoryIds ? { categoryId: { in: list(q.categoryIds) } } : {}),
+      ...(q.vesselIds ? { vesselId: { in: list(q.vesselIds) } } : {}),
+      ...(q.statuses ? { status: { in: list(q.statuses) as any } } : {}),
       ...(q.vesselId ? { vesselId: q.vesselId } : {}),
-      ...(q.type ? { type: q.type } : {}),
+      ...(q.type ? { type: q.type } : q.types ? { type: { in: q.types.split(',').filter((t) => (TYPE_KEYS as readonly string[]).includes(t)) as ReportType[] } } : {}),
       ...(q.status ? { status: q.status as any } : {}),
       ...(q.projectId ? { projectId: q.projectId } : {}),
-      ...(q.q ? { OR: [{ number: { contains: q.q, mode: 'insensitive' } }, { title: { contains: q.q, mode: 'insensitive' } }, { vessel: { name: { contains: q.q, mode: 'insensitive' } } }] } : {}),
+      ...(q.q ? { AND: [{ OR: [{ number: { contains: q.q, mode: 'insensitive' } }, { title: { contains: q.q, mode: 'insensitive' } }, { vessel: { name: { contains: q.q, mode: 'insensitive' } } }] }] } : {}),
     };
     const [items, total] = await Promise.all([
       prisma.report.findMany({ where, ...paginate(q), orderBy: { updatedAt: 'desc' }, include: { vessel: { select: { id: true, name: true } } } }),
       prisma.report.count({ where }),
     ]);
-    res.json({ items, total, page: q.page, pageSize: q.pageSize });
+    const cats = await prisma.reportCategory.findMany({ where: { id: { in: [...new Set(items.map((i) => i.categoryId).filter(Boolean) as string[])] } }, select: { id: true, name: true, tone: true } });
+    const byId = new Map(cats.map((c) => [c.id, c]));
+    res.json({ items: items.map((i) => ({ ...i, category: i.categoryId ? byId.get(i.categoryId) ?? null : null })), total, page: q.page, pageSize: q.pageSize });
   }),
 );
 
 /** Taslak verisini ilgili tekne / iş emri / projeden otomatik doldurur */
-async function prefill(type: ReportType, vesselId: string, workOrderId?: string | null, projectId?: string | null, user?: AuthUser) {
+async function prefill(type: ReportType, vesselId: string, workOrderId?: string | null, projectId?: string | null, user?: AuthUser, categoryName?: string) {
   const base: Record<string, any> = { reportDate: new Date().toISOString(), preparedBy: user?.name };
   const vessel = await prisma.vessel.findUnique({ where: { id: vesselId } });
   if (type === 'POST_SCRAPING') {
     // Örnek belge (kazıma sonrası teknik inceleme raporu) birebir şablon
-    return { ...base, ...scrapingTemplate(vessel?.name), inspectionDate: new Date().toISOString(), location: vessel?.marina, inspector: user?.name };
+    return { ...base, ...scrapingSections(vessel?.name), inspectionDate: new Date().toISOString(), location: vessel?.marina, inspector: user?.name };
   }
   if (type === 'PROJECT_PROPOSAL') {
     return { ...base, ...proposalTemplate(vessel?.name) };
+  }
+  if (type === 'CUSTOM') {
+    return { ...base, ...customTemplate(categoryName ?? 'Rapor', vessel?.name ?? ''), location: vessel?.marina };
   }
   if (type === 'HULL_RESTORATION') {
     const project = projectId ? await prisma.project.findUnique({ where: { id: projectId }, include: { phases: { orderBy: { order: 'asc' }, include: { responsible: true, tasks: true } } } }) : null;
@@ -102,22 +223,158 @@ async function prefill(type: ReportType, vesselId: string, workOrderId?: string 
   return base;
 }
 
+// ───────────────────────── Şablonlar ─────────────────────────
+/** Metin içindeki tekneye özgü değerleri yer tutuculara çevirir ({TEKNE}, {MARINA}) ve geri doldurur ({TARIH} dahil) */
+function mapStrings(v: unknown, fn: (s: string) => string): any {
+  if (typeof v === 'string') return fn(v);
+  if (Array.isArray(v)) return v.map((x) => mapStrings(x, fn));
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, mapStrings(x, fn)]));
+  return v;
+}
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function toTemplate(data: Record<string, any>, vessel: { name: string; marina: string | null }) {
+  const { reportDate: _r, inspectionDate: _i, ...rest } = data;
+  const names = [vessel.name, vessel.name.replace(/^M\/Y\s+/i, '')].filter((n) => n.length > 2).sort((a, b) => b.length - a.length);
+  // "SEA RODS" ↔ "SEA ROD'S" gibi kesme işaretli yazımlar da eşleşsin
+  const loose = (n: string) => new RegExp(n.split('').map(escapeRe).join("['’]?"), 'gi');
+  return mapStrings(rest, (s) => {
+    let out = s;
+    for (const n of names) out = out.replace(loose(n), n === vessel.name ? '{TEKNE}' : '{TEKNE_KISA}');
+    if (vessel.marina && vessel.marina.length > 3) out = out.replace(new RegExp(escapeRe(vessel.marina), 'g'), '{MARINA}');
+    return out;
+  });
+}
+function fromTemplate(data: Record<string, any>, vessel: { name: string; marina: string | null }) {
+  const today = new Date().toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\./g, ' / ');
+  return mapStrings(data, (s) => s.replace(/\{TEKNE\}/g, vessel.name).replace(/\{TEKNE_KISA\}/g, vessel.name.replace(/^M\/Y\s+/i, '')).replace(/\{MARINA\}/g, vessel.marina ?? '').replace(/\{TARIH\}/g, today));
+}
+
+reportsRouter.get(
+  '/templates',
+  requirePerm('reports.manage'),
+  ah(async (req, res) => {
+    const type = z.enum(TYPE_KEYS).optional().parse(req.query.type);
+    const categoryId = z.string().optional().parse(req.query.categoryId);
+    if (categoryId) await ensureCategories();
+    res.json(await prisma.reportTemplate.findMany({ where: categoryId ? { categoryId } : type ? { type } : {}, orderBy: [{ type: 'asc' }, { isDefault: 'desc' }, { createdAt: 'desc' }] }));
+  }),
+);
+
+const templateBody = z.object({ name: z.string().trim().min(2), description: zOptStr, isDefault: z.boolean().optional() });
+
+/** Bir belgeyi şablon olarak kaydet (tekne adı / marina yer tutucuya çevrilir) */
+reportsRouter.post(
+  '/:id/save-template',
+  requirePerm('reports.approve'),
+  ah<AuthedRequest>(async (req, res) => {
+    const body = templateBody.parse(req.body);
+    const r = await prisma.report.findUniqueOrThrow({ where: { id: req.params.id }, include: { vessel: true, versions: { orderBy: { version: 'desc' }, take: 1 } } });
+    if (['INSPECTION', 'WEEKLY_SERVICE'].includes(r.type)) throw badRequest('Bu belge türü otomatik oluşturulur, şablon gerekmez');
+    const data = toTemplate((r.versions[0]?.data ?? {}) as Record<string, any>, r.vessel);
+    const t = await prisma.$transaction(async (tx) => {
+      if (body.isDefault) await tx.reportTemplate.updateMany({ where: r.categoryId ? { categoryId: r.categoryId } : { type: r.type }, data: { isDefault: false } });
+      return tx.reportTemplate.create({ data: { name: body.name, description: body.description ?? null, isDefault: !!body.isDefault, type: r.type, categoryId: r.categoryId, data, createdById: req.user.id } });
+    });
+    await audit(req.user.id, 'template.create', 'ReportTemplate', t.id, { type: r.type });
+    res.status(201).json(t);
+  }),
+);
+
+reportsRouter.put(
+  '/templates/:tid',
+  requirePerm('reports.approve'),
+  ah(async (req, res) => {
+    const body = templateBody.partial().parse(req.body);
+    const t = await prisma.reportTemplate.findUniqueOrThrow({ where: { id: req.params.tid } });
+    const updated = await prisma.$transaction(async (tx) => {
+      if (body.isDefault) await tx.reportTemplate.updateMany({ where: { ...(t.categoryId ? { categoryId: t.categoryId } : { type: t.type }), id: { not: t.id } }, data: { isDefault: false } });
+      return tx.reportTemplate.update({ where: { id: t.id }, data: { name: body.name, description: body.description, isDefault: body.isDefault } });
+    });
+    res.json(updated);
+  }),
+);
+
+reportsRouter.delete(
+  '/templates/:tid',
+  requirePerm('reports.approve'),
+  ah(async (req, res) => {
+    await prisma.reportTemplate.delete({ where: { id: req.params.tid } });
+    res.json({ ok: true });
+  }),
+);
+
+// ───────────────────────── Haftalık bakım ve servis raporu ─────────────────────────
+/** Tek tekne veya tüm aktif tekneler için haftalık rapor oluştur / taslağı yenile */
+reportsRouter.post(
+  '/weekly',
+  requirePerm('reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const body = z.object({ vesselId: z.string().optional(), weekStart: z.coerce.date().optional() }).parse(req.body ?? {});
+    const week = body.weekStart ?? new Date(weekStartOf(new Date()).getTime() - 7 * 864e5);
+    if (body.vesselId) {
+      assertVesselAccess(req.user, body.vesselId);
+      const r = await upsertWeeklyReport(body.vesselId, week, req.user.id);
+      return res.status(r?.created ? 201 : 200).json({ created: r?.created ? 1 : 0, reportId: r?.report.id });
+    }
+    const vessels = await prisma.vessel.findMany({ where: { isActive: true }, select: { id: true } });
+    let created = 0;
+    let refreshed = 0;
+    for (const v of vessels) {
+      const r = await upsertWeeklyReport(v.id, week, req.user.id, { onlyIfActivity: true });
+      if (r?.created) created++;
+      else if (r) refreshed++;
+    }
+    res.json({ created, refreshed });
+  }),
+);
+
+/** Taslak haftalık raporun verilerini iş emirlerinden yeniden çek */
+reportsRouter.post(
+  '/:id/refresh-weekly',
+  requirePerm('reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const r = await prisma.report.findUniqueOrThrow({ where: { id: req.params.id }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
+    if (r.type !== 'WEEKLY_SERVICE') throw badRequest('Yalnızca haftalık raporlar yenilenebilir');
+    if (r.versions[0]?.status !== 'DRAFT') throw badRequest('Onaylı rapor yenilenemez; önce düzenleyip yeni sürüm açın');
+    const start = new Date(((r.versions[0].data ?? {}) as any).weekStart ?? Date.now());
+    await upsertWeeklyReport(r.vesselId, start, req.user.id);
+    res.json({ ok: true });
+  }),
+);
+
 reportsRouter.post(
   '/',
   requirePerm('reports.manage'),
   ah<AuthedRequest>(async (req, res) => {
-    const body = z.object({ type: z.enum(TYPE_KEYS), vesselId: z.string(), title: zOptStr, workOrderId: zOptStr, projectId: zOptStr, data: z.record(z.any()).optional() }).parse(req.body);
+    const raw = z.object({ type: z.enum(TYPE_KEYS).optional(), categoryId: zOptStr, vesselId: z.string(), title: zOptStr, workOrderId: zOptStr, projectId: zOptStr, templateId: zOptStr, data: z.record(z.any()).optional() }).parse(req.body);
+    await ensureCategories();
+    const cat = raw.categoryId
+      ? await prisma.reportCategory.findUniqueOrThrow({ where: { id: raw.categoryId } })
+      : raw.type
+        ? await prisma.reportCategory.findFirst({ where: { builtIn: true, baseType: raw.type } })
+        : null;
+    if (!cat && !raw.type) throw badRequest('Rapor başlığı seçin');
+    const body = { ...raw, type: (cat?.baseType ?? raw.type) as ReportType };
     if (body.type === 'INSPECTION') throw badRequest('Denetim raporları denetim onayı ile otomatik oluşturulur');
+    if (body.type === 'WEEKLY_SERVICE') throw badRequest('Haftalık raporlar "Haftalık rapor oluştur" ile hazırlanır');
     assertVesselAccess(req.user, body.vesselId);
     const vessel = await prisma.vessel.findUniqueOrThrow({ where: { id: body.vesselId } });
-    const data = { ...(await prefill(body.type, body.vesselId, body.workOrderId, body.projectId, req.user)), ...(body.data ?? {}) };
+    // Şablon: seçilen → türün varsayılanı → sistemdeki örnek belge
+    const tpl = body.templateId === 'SYSTEM'
+      ? null
+      : body.templateId
+        ? await prisma.reportTemplate.findUnique({ where: { id: body.templateId } })
+        : await prisma.reportTemplate.findFirst({ where: cat ? { categoryId: cat.id, isDefault: true } : { type: body.type, isDefault: true } });
+    const base = await prefill(body.type, body.vesselId, body.workOrderId, body.projectId, req.user, cat?.name);
+    const data = migrateSections({ ...base, ...(tpl ? fromTemplate(tpl.data as Record<string, any>, vessel) : {}), reportDate: base.reportDate, ...(body.data ?? {}) });
     const report = await prisma.$transaction(async (tx) => {
       const number = await nextNumber('RPT', tx);
       return tx.report.create({
         data: {
           number,
           type: body.type,
-          title: body.title || `${REPORT_TYPES[body.type]} — ${vessel.name}`,
+          title: body.title || `${cat?.name ?? REPORT_TYPES[body.type]} — ${vessel.name}`,
+          categoryId: cat?.id,
           vesselId: body.vesselId,
           workOrderId: body.workOrderId ?? undefined,
           projectId: body.projectId ?? undefined,
@@ -148,7 +405,8 @@ reportsRouter.get(
     const userIds = [...new Set(r.versions.flatMap((v) => [v.createdById, v.approvedById]).filter(Boolean) as string[])];
     const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
     const versions = req.user.isStaff ? r.versions : r.versions.filter((v) => v.status === 'PUBLISHED');
-    res.json({ ...r, versions, users: Object.fromEntries(users.map((u) => [u.id, u.name])) });
+    const category = r.categoryId ? await prisma.reportCategory.findUnique({ where: { id: r.categoryId } }) : null;
+    res.json({ ...r, category, versions, users: Object.fromEntries(users.map((u) => [u.id, u.name])) });
   }),
 );
 
@@ -161,22 +419,64 @@ reportsRouter.put(
   requirePerm('reports.manage'),
   ah<AuthedRequest>(async (req, res) => {
     const body = z.object({ title: zOptStr, data: z.record(z.any()), changeNote: zOptStr, customerVisible: z.boolean().optional() }).parse(req.body);
-    const r = await prisma.report.findUniqueOrThrow({ where: { id: req.params.id }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
-    if (r.type === 'INSPECTION') throw badRequest('Denetim raporu denetim kaydı üzerinden düzenlenir');
-    const latest = r.versions[0];
-    const result = await prisma.$transaction(async (tx) => {
-      if (latest && ['DRAFT', 'IN_REVIEW'].includes(latest.status)) {
-        await tx.reportVersion.update({ where: { id: latest.id }, data: { data: body.data, changeNote: body.changeNote ?? latest.changeNote } });
-      } else {
-        await tx.reportVersion.create({ data: { reportId: r.id, version: (latest?.version ?? 0) + 1, data: body.data, createdById: req.user.id, changeNote: body.changeNote ?? 'Onaylı rapor üzerinde revizyon' } });
-      }
-      const fresh = await tx.reportVersion.findFirstOrThrow({ where: { reportId: r.id }, orderBy: { version: 'desc' } });
-      return tx.report.update({
-        where: { id: r.id },
-        data: { title: body.title ?? undefined, currentVersion: fresh.version, customerVisible: body.customerVisible, status: fresh.status === 'DRAFT' && r.status !== 'DRAFT' ? r.status : fresh.status },
-      });
+    const result = await saveData(req.params.id, body.data, req.user.id, { title: body.title, changeNote: body.changeNote, customerVisible: body.customerVisible });
+    await audit(req.user.id, 'report.update', 'Report', req.params.id, { version: result.currentVersion });
+    res.json(result);
+  }),
+);
+
+async function saveData(reportId: string, data: Record<string, any>, userId: string, opts: { title?: string | null; changeNote?: string | null; customerVisible?: boolean; forceNew?: boolean } = {}) {
+  const r = await prisma.report.findUniqueOrThrow({ where: { id: reportId }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
+  if (r.type === 'INSPECTION') throw badRequest('Denetim raporu denetim kaydı üzerinden düzenlenir');
+  const latest = r.versions[0];
+  return prisma.$transaction(async (tx) => {
+    if (latest && ['DRAFT', 'IN_REVIEW'].includes(latest.status)) {
+      await tx.reportVersion.update({ where: { id: latest.id }, data: { data, changeNote: opts.changeNote ?? latest.changeNote } });
+    } else {
+      await tx.reportVersion.create({ data: { reportId: r.id, version: (latest?.version ?? 0) + 1, data, createdById: userId, changeNote: opts.changeNote ?? 'Onaylı rapor üzerinde revizyon' } });
+    }
+    const fresh = await tx.reportVersion.findFirstOrThrow({ where: { reportId: r.id }, orderBy: { version: 'desc' } });
+    return tx.report.update({
+      where: { id: r.id },
+      data: { title: opts.title ?? undefined, currentVersion: fresh.version, customerVisible: opts.customerVisible, status: fresh.status === 'DRAFT' && r.status !== 'DRAFT' ? r.status : fresh.status },
     });
-    await audit(req.user.id, 'report.update', 'Report', r.id, { version: result.currentVersion });
+  });
+}
+
+/** Seçilen şablonu (veya sistem örneğini) belgeye uygula; mevcut taslak güncellenir ya da yeni sürüm açılır */
+reportsRouter.post(
+  '/:id/apply-template',
+  requirePerm('reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const { templateId } = z.object({ templateId: z.string() }).parse(req.body);
+    const r = await prisma.report.findUniqueOrThrow({ where: { id: req.params.id }, include: { vessel: true, versions: { orderBy: { version: 'desc' }, take: 1 } } });
+    if (['INSPECTION', 'WEEKLY_SERVICE'].includes(r.type)) throw badRequest('Bu belge türüne şablon uygulanmaz');
+    const category = r.categoryId ? await prisma.reportCategory.findUnique({ where: { id: r.categoryId } }) : null;
+    const cur = (r.versions[0]?.data ?? {}) as Record<string, any>;
+    const base = await prefill(r.type, r.vesselId, r.workOrderId, r.projectId, req.user, category?.name);
+    let name = 'Sistem şablonu';
+    let data: Record<string, any> = base;
+    if (templateId !== 'SYSTEM') {
+      const tpl = await prisma.reportTemplate.findUniqueOrThrow({ where: { id: templateId } });
+      name = tpl.name;
+      data = { ...base, ...fromTemplate(tpl.data as Record<string, any>, r.vessel) };
+    }
+    data = migrateSections({ ...data, reportDate: cur.reportDate ?? base.reportDate, preparedBy: cur.preparedBy ?? base.preparedBy });
+    const result = await saveData(r.id, data, req.user.id, { changeNote: `"${name}" şablonu uygulandı` });
+    await audit(req.user.id, 'report.apply-template', 'Report', r.id, { templateId });
+    res.json(result);
+  }),
+);
+
+/** Eski bir sürümün içeriğini geri yükle (yeni taslak / güncel taslak olarak) */
+reportsRouter.post(
+  '/:id/restore',
+  requirePerm('reports.manage'),
+  ah<AuthedRequest>(async (req, res) => {
+    const { version } = z.object({ version: z.number().int() }).parse(req.body);
+    const v = await prisma.reportVersion.findFirstOrThrow({ where: { reportId: req.params.id, version } });
+    const result = await saveData(req.params.id, v.data as Record<string, any>, req.user.id, { changeNote: `Sürüm ${version} geri yüklendi` });
+    await audit(req.user.id, 'report.restore', 'Report', req.params.id, { version });
     res.json(result);
   }),
 );
@@ -239,6 +539,21 @@ reportsRouter.post(
       entityId: report.id,
       dedupeKey: `report-pub-${report.id}-v${v.version}`,
     });
+    res.json({ ok: true });
+  }),
+);
+
+/** Yayından kaldır: müşteri portalında artık görünmez (onaylı sürüm korunur) */
+reportsRouter.post(
+  '/:id/unpublish',
+  requirePerm('reports.approve'),
+  ah<AuthedRequest>(async (req, res) => {
+    const report = await prisma.report.findUniqueOrThrow({ where: { id: req.params.id } });
+    await prisma.$transaction([
+      prisma.reportVersion.updateMany({ where: { reportId: report.id, status: 'PUBLISHED' }, data: { status: 'APPROVED' } }),
+      prisma.report.update({ where: { id: report.id }, data: { status: report.status === 'PUBLISHED' ? 'APPROVED' : report.status, customerVisible: false } }),
+    ]);
+    await audit(req.user.id, 'report.unpublish', 'Report', report.id, {});
     res.json({ ok: true });
   }),
 );

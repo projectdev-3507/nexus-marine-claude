@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import type { Permission } from '@nexus/shared';
+import { useMaintCats } from './lib/maintCats';
 import { useAuth } from './lib/auth';
 import { Empty, Loading } from './components/ui';
 import AdminLayout, { isTechOnly } from './layouts/AdminLayout';
@@ -27,6 +28,7 @@ const Inventory = lazy(() => import('./pages/Inventory'));
 const CustomersList = lazy(() => import('./pages/Customers').then((m) => ({ default: m.CustomersList })));
 const CustomerDetail = lazy(() => import('./pages/Customers').then((m) => ({ default: m.CustomerDetail })));
 const Finance = lazy(() => import('./pages/Finance'));
+const Collections = lazy(() => import('./pages/Collections'));
 const QuoteDetail = lazy(() => import('./pages/Finance').then((m) => ({ default: m.QuoteDetail })));
 const QuotesList = lazy(() => import('./pages/Finance').then((m) => ({ default: () => <m.QuotesList portal /> })));
 const Documents = lazy(() => import('./pages/Documents'));
@@ -52,6 +54,7 @@ const S = ({ children }: { children: ReactNode }) => <Suspense fallback={<Loadin
 
 export default function App() {
   const { user, loading, staff } = useAuth();
+  useMaintCats(!!user);
   if (loading) return <div style={{ height: '100vh', display: 'grid', placeItems: 'center' }}><Loading /></div>;
   return (
     <BrowserRouter>
@@ -73,8 +76,11 @@ export default function App() {
             <Route path="inspections" element={<S><Guard perm={['inspections.view']}><Inspections /></Guard></S>} />
             <Route path="inspections/:id" element={<S><Guard perm={['inspections.view']}><InspectionDetail /></Guard></S>} />
             <Route path="faults" element={<S><Faults /></S>} />
-            <Route path="reports" element={<S><Guard perm={['reports.manage']}><Reports /></Guard></S>} />
+            <Route path="reports" element={<S><Guard perm={['reports.manage']}><Reports key="reports" group="reports" /></Guard></S>} />
+            <Route path="collections" element={<S><Guard perm={['finance.view']}><Collections /></Guard></S>} />
+            <Route path="contracts" element={<S><Guard perm={['reports.manage']}><Reports key="contracts" group="contracts" /></Guard></S>} />
             <Route path="reports/:id" element={<S><Guard perm={['reports.manage', 'reports.view']}><ReportDetail /></Guard></S>} />
+            <Route path="contracts/:id" element={<S><Guard perm={['reports.manage', 'reports.view']}><ReportDetail /></Guard></S>} />
             <Route path="projects" element={<S><Guard perm={['projects.manage']}><ProjectsList /></Guard></S>} />
             <Route path="projects/:id" element={<S><Guard perm={['projects.view']}><ProjectDetail /></Guard></S>} />
             <Route path="inventory" element={<S><Guard perm={['inventory.view']}><Inventory /></Guard></S>} />
@@ -84,7 +90,7 @@ export default function App() {
             <Route path="finance/quotes/:id" element={<S><Guard perm={['finance.view']}><QuoteDetail /></Guard></S>} />
             <Route path="quotes" element={<Navigate to="/finance" replace />} />
             <Route path="quotes/:id" element={<S><Guard perm={['finance.view']}><QuoteDetail /></Guard></S>} />
-            <Route path="documents" element={<S><Guard perm={['documents.manage']}><Documents /></Guard></S>} />
+            <Route path="documents" element={<Navigate to="/contracts" replace />} />
             <Route path="notifications" element={<S><Notifications /></S>} />
             <Route path="analytics" element={<S><Guard perm={['analytics.view']}><Analytics /></Guard></S>} />
             <Route path="users" element={<S><Guard perm={['users.manage']}><Users /></Guard></S>} />

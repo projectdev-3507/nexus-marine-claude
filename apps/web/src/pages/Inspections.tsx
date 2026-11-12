@@ -24,7 +24,7 @@ export default function Inspections() {
     { key: 'i', label: 'Denetçi / Kaptan', render: (i) => <div><div>{i.inspector.name}</div><div className="cell-sub">{i.captainName}</div></div> },
     { key: 'p', label: 'İlerleme', render: (i) => <div style={{ minWidth: 120 }}><Progress value={(i.stats.filled / i.stats.total) * 100} /><div className="xs muted mt-1">{i.stats.filled}/{i.stats.total} madde</div></div> },
     { key: 'r', label: 'Sonuçlar', render: (i) => <div className="row-wrap" style={{ gap: 4 }}><Badge tone="ok" plain>{i.stats.ok}</Badge><Badge tone="warn" plain>{i.stats.attention}</Badge><Badge tone="danger" plain>{i.stats.fault}</Badge><Badge tone="neutral" plain>{i.stats.na}</Badge></div> },
-    { key: 's', label: 'Durum', render: (i) => <StatusBadge map={INSP_TONE} labels={INSP_STATUS_LABELS} value={i.status} /> },
+    { key: 's', label: 'Durum', render: (i) => <span className="row-wrap" style={{ gap: 4 }}><StatusBadge map={INSP_TONE} labels={INSP_STATUS_LABELS} value={i.status} />{i.report?.status === 'PUBLISHED' && <Badge tone="info">Yayınlandı</Badge>}</span> },
     { key: 'pdf', label: '', align: 'right', render: (i) => <a className="btn btn-sm" href={authedUrl(`/inspections/${i.id}/pdf`)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><FileText /> PDF</a> },
   ];
   return (
@@ -57,7 +57,7 @@ function NewInspection({ onClose }: { onClose: () => void }) {
         <Field label="Tekne"><select className="select" value={vesselId} onChange={(e) => setVesselId(e.target.value)}><option value="">— Seçin —</option>{vessels.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></Field>
         <Field label="Denetim tarihi"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       </div>
-      <div className="notice mt-2">Form, 19 bölümlük standart Nexus Marine denetim matrisiyle oluşturulur. Bir önceki denetimin sonuçları her maddede referans olarak gösterilir.</div>
+      <div className="notice mt-2">Form, 19 bölümlük standart Nexus Marin denetim matrisiyle oluşturulur. Bir önceki denetimin sonuçları her maddede referans olarak gösterilir.</div>
     </Modal>
   );
 }

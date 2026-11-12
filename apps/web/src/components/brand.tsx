@@ -1,20 +1,14 @@
-/** Nexus Marine logo ve yat illüstrasyonları (vektör, harici görsel bağımlılığı yok) */
-export function LogoMark({ size = 38 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden>
-      <rect width="40" height="40" rx="10" fill="#1767AD" />
-      <path d="M20 8.5l6.6 13.2H13.4z" fill="#fff" />
-      <path d="M8.5 27c3.4-3.8 6.9 2.9 11.5 0s8-3.8 11.5 0" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" />
-    </svg>
-  );
+/** Nexus Marin ve Yatçılık Hizmetleri logosu (resmi logo görselinden) */
+export function LogoMark({ size = 40, full = false }: { size?: number; full?: boolean }) {
+  return <img src={full ? '/brand/nexus-logo.png' : '/brand/nexus-emblem.png'} width={size} height={size} alt="Nexus Marin" style={{ borderRadius: '50%', display: 'block', flex: 'none' }} />;
 }
 
-export function Logo({ light = true, sub = 'Yacht Operations' }: { light?: boolean; sub?: string }) {
+export function Logo({ light = true, sub = 'Marin ve Yatçılık Hizmetleri' }: { light?: boolean; sub?: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <LogoMark />
       <div className="brand-text">
-        <b style={{ color: light ? '#fff' : 'var(--navy)' }}>NEXUS MARINE</b>
+        <b style={{ color: light ? '#fff' : 'var(--navy)' }}>NEXUS</b>
         <span>{sub}</span>
       </div>
     </div>

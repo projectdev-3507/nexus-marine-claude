@@ -2,6 +2,7 @@ import { prisma } from '../db';
 import { config } from '../config';
 import { managerIds, notify } from './notify';
 import { getSettings } from '../routes/settings';
+import { autoWeeklyReports } from './weekly';
 
 /**
  * Periyodik görevler:
@@ -89,6 +90,8 @@ export async function runScheduledJobs(now = new Date()) {
       dedupeKey: `wo-overdue-${w.id}`,
     });
   }
+  // Pazartesi: geçen haftanın bakım ve servis raporları (taslak)
+  (result as any).weeklyReports = await autoWeeklyReports(now);
   return result;
 }
 

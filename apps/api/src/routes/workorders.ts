@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { MAINTENANCE_CATEGORY_KEYS, OPEN_WORK_ORDER_STATUSES, PRIORITIES, WORK_ORDER_STATUSES } from '@nexus/shared';
+import { OPEN_WORK_ORDER_STATUSES, PRIORITIES, WORK_ORDER_STATUSES } from '@nexus/shared';
 import { prisma } from '../db';
 import { ah, badRequest, forbidden, notFound } from '../lib/errors';
 import { assertVesselAccess, can, isTechOnly, requirePerm, vesselFilter, type AuthedRequest, type AuthUser } from '../lib/auth';
@@ -19,7 +19,7 @@ const createSchema = z.object({
   vesselId: z.string(),
   title: z.string().trim().min(2),
   description: zOptStr,
-  category: z.enum(MAINTENANCE_CATEGORY_KEYS as [string, ...string[]]).optional().nullable(),
+  category: z.string().trim().min(1).optional().nullable(),
   priority: z.enum(PRIORITIES).default('MEDIUM'),
   technicianId: zOptStr,
   plannedStart: zOptDate,

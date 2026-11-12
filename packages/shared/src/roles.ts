@@ -57,9 +57,7 @@ const ALL: Permission[] = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,
-  OPERATIONS_MANAGER: ALL.filter(
-    (p) => !['users.manage', 'settings.manage', 'finance.manage', 'quotes.respond'].includes(p),
-  ).filter((p) => p !== 'finance.view'),
+  OPERATIONS_MANAGER: ALL.filter((p) => !['users.manage', 'settings.manage', 'quotes.respond'].includes(p)),
   TECHNICIAN: [
     'dashboard.view',
     'vessels.view',

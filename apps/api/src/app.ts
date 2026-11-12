@@ -14,6 +14,8 @@ import { maintenanceRouter } from './routes/maintenance';
 import { inspectionsRouter } from './routes/inspections';
 import { faultsRouter } from './routes/faults';
 import { reportsRouter } from './routes/reports';
+import { collectionsRouter } from './routes/collections';
+import { maintCategoriesRouter } from './routes/maintCategories';
 import { projectsRouter } from './routes/projects';
 import { customersRouter } from './routes/customers';
 import { quotesRouter, paymentsRouter } from './routes/finance';
@@ -53,6 +55,8 @@ export function createApp() {
   api.use('/inspections', inspectionsRouter);
   api.use('/faults', faultsRouter);
   api.use('/reports', reportsRouter);
+  api.use('/collections', collectionsRouter);
+  api.use('/maintenance-categories', maintCategoriesRouter);
   api.use('/projects', projectsRouter);
   api.use('/customers', customersRouter);
   api.use('/quotes', quotesRouter);

@@ -169,6 +169,8 @@ export const REPORT_TYPES = {
   TEAK_CARPENTRY: 'Teak Güverte ve Marangozluk Raporu',
   DELIVERY_PROTOCOL: 'Birleşik Bakım ve Teslim Protokolü',
   PROJECT_PROPOSAL: 'Proje Teklif Dosyası',
+  WEEKLY_SERVICE: 'Haftalık Bakım ve Servis Raporu',
+  CUSTOM: 'Özel Rapor',
 } as const;
 export type ReportType = keyof typeof REPORT_TYPES;
 

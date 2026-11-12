@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
-import { PrismaClient, type User, type Customer, type Vessel, type Engine, type Material, type WorkOrder, type Priority, type WorkOrderStatus, type MaintenanceCategory, type Role } from '@prisma/client';
+import { PrismaClient, type User, type Customer, type Vessel, type Engine, type Material, type WorkOrder, type Priority, type WorkOrderStatus, type Role } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+type MaintenanceCategory = 'MECHANICAL' | 'ELECTRICAL' | 'HAUL_OUT' | 'COSMETIC';
 import { INSPECTION_TEMPLATE, INSPECTION_TEMPLATE_VERSION, HULL_RESTORATION_PHASES, MAINTENANCE_CATEGORIES, protocolTemplate, proposalTemplate, scrapingTemplate } from '@nexus/shared';
 
 const prisma = new PrismaClient();

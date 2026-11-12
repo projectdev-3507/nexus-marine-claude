@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
-import { MAINTENANCE_CATEGORY_KEYS, MAINTENANCE_STATUSES, PRIORITIES } from '@nexus/shared';
+import { MAINTENANCE_STATUSES, PRIORITIES } from '@nexus/shared';
 import { prisma } from '../db';
 import { ah, badRequest, notFound } from '../lib/errors';
 import { assertVesselAccess, isTechOnly, requirePerm, vesselFilter, type AuthedRequest } from '../lib/auth';
@@ -13,7 +13,7 @@ export const maintenanceRouter = Router();
 
 const schema = z.object({
   title: z.string().trim().min(2),
-  category: z.enum(MAINTENANCE_CATEGORY_KEYS as [string, ...string[]]),
+  category: z.string().trim().min(1),
   subType: zOptStr,
   vesselId: z.string(),
   description: zOptStr,

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronDown, ChevronRight, FileText, Send, CheckCircle2, AlertTriangle, ClipboardList, History } from 'lucide-react';
+import { ChevronDown, ChevronRight, FileText, Send, CheckCircle2, AlertTriangle, ClipboardList, History, Globe, EyeOff } from 'lucide-react';
 import { FINDING_PRIORITIES, FINDING_PRIORITY_LABELS, INSPECTION_DOC, INSPECTION_RESULTS, INSPECTION_RESULT_HINTS, INSPECTION_RESULT_LABELS, OPERATIONAL_STATUSES, OPERATIONAL_STATUS_LABELS, type InspectionResult, type OperationalStatus } from '@nexus/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApi, useAction } from '../lib/hooks';
@@ -50,7 +50,8 @@ export default function InspectionDetail() {
   }, { success: 'Boş maddeler UYGUN olarak işaretlendi' });
   const saveMeta = useAction((body: any) => api(`/inspections/${id}`, { method: 'PUT', body }));
   const submit = useAction(() => api(`/inspections/${id}/submit`, { body: {} }), { success: 'Denetim onaya gönderildi' });
-  const approve = useAction(() => api(`/inspections/${id}/approve`, { body: {} }), { success: 'Denetim onaylandı, rapor oluşturuldu' });
+  const approve = useAction(() => api(`/inspections/${id}/approve`, { body: {} }), { success: 'Denetim onaylandı' });
+  const publish = useAction((on: boolean) => api(`/reports/${insp.report.id}/${on ? 'publish' : 'unpublish'}`, { body: {} }), { success: 'Kaydedildi' });
   const openWO = useAction((itemId: string) => api(`/inspections/${id}/items/${itemId}/work-order`, { body: {} }), { success: 'Kontrol maddesinden iş emri açıldı', onSuccess: (w) => nav(`/work-orders/${w.id}`) });
 
   if (!insp) return <Loading />;
@@ -62,13 +63,15 @@ export default function InspectionDetail() {
       <PageHeader
         crumbs={<><Link to="/inspections">Dijital Denetimler</Link> / {insp.number}</>}
         title={`${insp.vessel.name} — Teknik Denetim`}
-        sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{insp.number}</span><StatusBadge map={INSP_TONE} labels={INSP_STATUS_LABELS} value={insp.status} /><span>{fmtDate(insp.date)}</span></span>}
+        sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{insp.number}</span><span title={insp.approverName ? `${insp.approverName}${insp.approvedAt ? ' · ' + fmtDate(insp.approvedAt) : ''}` : undefined}><StatusBadge map={INSP_TONE} labels={INSP_STATUS_LABELS} value={insp.status} /></span>{insp.report?.status === 'PUBLISHED' && <Badge tone="info"><Globe size={12} /> Yayınlandı</Badge>}<span>{fmtDate(insp.date)}</span></span>}
         actions={
           <>
             <a className="btn" href={authedUrl(`/inspections/${id}/pdf`)} target="_blank" rel="noreferrer"><FileText /> PDF Rapor</a>
             {editable && insp.status === 'DRAFT' && <button className="btn btn-primary" disabled={stats.filled < allItems.length} onClick={() => submit.mutate(undefined)}><Send /> Onaya gönder</button>}
             {manager && insp.status === 'SUBMITTED' && <button className="btn btn-success" onClick={() => approve.mutate(undefined)}><CheckCircle2 /> Denetimi onayla</button>}
-            {insp.report && <Link className="btn" to={`/reports/${insp.report.id}`}>Rapor {insp.report.number}</Link>}
+            {insp.report && can('reports.approve') && (insp.report.status === 'PUBLISHED'
+              ? <button className="btn" disabled={publish.isPending} onClick={() => confirm('Denetim raporu müşteri portalından kaldırılsın mı?') && publish.mutate(false)}><EyeOff /> Yayınlamayı kaldır</button>
+              : <button className="btn btn-primary" disabled={publish.isPending} onClick={() => publish.mutate(true)}><Globe /> Müşteriye yayınla</button>)}
           </>
         }
       />
@@ -178,7 +181,7 @@ export default function InspectionDetail() {
         </div>
         <div className="stack">
           <Card title="Denetim bilgileri">
-            <KV cols={2} items={[['Tekne', insp.vessel.name], ['Marina', insp.vessel.marina], ['Denetçi', insp.inspector.name], ['Tarih', fmtDate(insp.date)]]} />
+            <KV cols={2} items={[['Tekne', insp.vessel.name], ['Marina', insp.vessel.marina], ['Denetçi', insp.inspectorName || insp.inspector.name], ['Tarih', fmtDate(insp.date)]]} />
             <div className="stack mt-2">
               <Field label="Genel değerlendirme notu"><textarea className="textarea" disabled={!editable} defaultValue={insp.generalNotes ?? ''} onBlur={(e) => saveMeta.mutate({ generalNotes: e.target.value })} /></Field>
               {insp.operationalStatus && <div className="small">Operasyonel statü: <Badge tone={insp.operationalStatus === 'READY' ? 'ok' : insp.operationalStatus === 'FOLLOW_UP' ? 'warn' : 'danger'}>{OPERATIONAL_STATUS_LABELS[insp.operationalStatus as OperationalStatus]}</Badge></div>}
@@ -314,7 +317,7 @@ function ApprovalSection({ insp, editable, onMeta }: { insp: any; editable: bool
         <div className="grid g-2">
           <div className="sign-box">
             <b>Denetimi Yapan Kaptan / Enspektör</b>
-            <div>İsim - Soyisim: <b>{insp.inspector.name}</b></div>
+            <div className="row" style={{ gap: 6 }}>İsim - Soyisim: <input className="input sm" style={{ maxWidth: 240 }} disabled={!editable} defaultValue={insp.inspectorName || insp.inspector.name} placeholder="Ad Soyad" onBlur={(e) => e.target.value !== (insp.inspectorName || insp.inspector.name) && onMeta({ inspectorName: e.target.value })} /></div>
             <div className="row" style={{ gap: 6 }}>Görevi: <input className="input sm" style={{ maxWidth: 220 }} disabled={!editable} defaultValue={insp.inspectorTitle ?? ''} placeholder="Ör. Teknik Enspektör" onBlur={(e) => e.target.value !== (insp.inspectorTitle ?? '') && onMeta({ inspectorTitle: e.target.value })} /></div>
             <div>İmza: {insp.submittedAt ? <span className="ok-text">✓ Elektronik onay · {fmtDate(insp.submittedAt)}</span> : <span className="muted">Onaya gönderildiğinde imzalanır</span>}</div>
           </div>

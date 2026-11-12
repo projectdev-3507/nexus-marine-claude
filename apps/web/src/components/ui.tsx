@@ -157,6 +157,8 @@ export function KV({ items, cols }: { items: Array<[string, ReactNode]>; cols?: 
 export interface Column<T> {
   key: string;
   label: string;
+  /** Başlık hücresinde etiket yerine gösterilecek içerik (ör. filtre düğmesi) */
+  header?: ReactNode;
   render: (row: T) => ReactNode;
   sortable?: boolean;
   width?: number | string;
@@ -193,7 +195,7 @@ export function DataTable<T extends { id: string }>({
                 className={c.sortable ? 'sortable' : ''}
                 onClick={() => c.sortable && onSort?.(c.key)}
               >
-                {c.label}
+                {c.header ?? c.label}
                 {sort?.key === c.key && (sort.order === 'asc' ? <ChevronUp size={12} style={{ verticalAlign: -2 }} /> : <ChevronDown size={12} style={{ verticalAlign: -2 }} />)}
               </th>
             ))}

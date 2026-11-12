@@ -263,6 +263,68 @@ export const protocolTemplate = (vessel = "M/Y SEA ROD'S"): ProtocolData => ({
   contractorSign: { name: 'Ramazan DEMİR', date: '25 / 05 / 2026' },
 });
 
+// ───────────── Serbest başlıklı belge (bölüm eklenebilir) ─────────────
+export interface FreeSection {
+  title: string;
+  intro?: string;
+  items: string[];
+}
+export interface SectionsData {
+  docTitle: string;
+  heading: string;
+  sections: FreeSection[];
+  closing?: string;
+}
+
+/** Kazıma raporu ve özel raporlar: başlıklar serbestçe eklenir / çıkarılır */
+export const scrapingSections = (vessel = 'SEA RODS'): SectionsData => {
+  const s = scrapingTemplate(vessel);
+  return {
+    docTitle: 'KAZIMA SONRASI TEKNİK İNCELEME RAPORU',
+    heading: s.heading,
+    sections: [
+      { title: 'SANCAK TARAF', intro: s.starboardIntro, items: s.starboard },
+      { title: s.portTitle, items: s.port },
+    ],
+    closing: '',
+  };
+};
+
+export const customTemplate = (name: string, vessel = ''): SectionsData => ({
+  docTitle: name.toLocaleUpperCase('tr-TR'),
+  heading: vessel,
+  sections: [
+    { title: 'GENEL BİLGİLER', intro: '', items: [''] },
+    { title: 'TESPİTLER', intro: '', items: [''] },
+    { title: 'SONUÇ VE ÖNERİLER', intro: '', items: [''] },
+  ],
+  closing: '',
+});
+
+/** Eski biçimdeki (iskele / sancak alanlı) kazıma verisini bölüm biçimine çevirir */
+export function toSectionsData(d: Record<string, any>): SectionsData | null {
+  if (Array.isArray(d.starboard)) {
+    return {
+      docTitle: 'KAZIMA SONRASI TEKNİK İNCELEME RAPORU',
+      heading: d.heading ?? '',
+      sections: [
+        { title: 'SANCAK TARAF', intro: d.starboardIntro ?? '', items: d.starboard ?? [] },
+        { title: d.portTitle ?? 'İSKELE TARAF', items: d.port ?? [] },
+      ],
+      closing: '',
+    };
+  }
+  if (Array.isArray(d.sections) && typeof d.docTitle === 'string' && !Array.isArray(d.parties) && !Array.isArray(d.scope)) return d as SectionsData;
+  return null;
+}
+
+/** Eski biçimli alanları kaldırıp serbest başlıklı biçime çevirir */
+export function migrateSections(d: Record<string, any>): Record<string, any> {
+  if (!Array.isArray(d.starboard)) return d;
+  const { starboard: _s, starboardIntro: _i, port: _p, portTitle: _t, ...rest } = d;
+  return { ...rest, ...toSectionsData(d) };
+}
+
 /** Müşteri onayına gönderilebilen belge türleri */
 export const APPROVAL_REPORT_TYPES = ['DELIVERY_PROTOCOL', 'PROJECT_PROPOSAL'] as const;
 export const APPROVAL_STATUS_LABELS: Record<string, string> = { PENDING: 'Onay bekliyor', APPROVED: 'Onay alındı', REJECTED: 'Reddedildi' };

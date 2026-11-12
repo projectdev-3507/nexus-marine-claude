@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Ship, Wrench, ClipboardList, CalendarDays, HardHat, ClipboardCheck, FileText, Hammer, Package, Users, Receipt,
-  FolderOpen, Bell, BarChart3, ShieldCheck, Settings, Menu, Search, LogOut, ChevronDown, UserCircle2, Plus, Sun,
+  LayoutDashboard, Ship, Wrench, ClipboardList, CalendarDays, HardHat, ClipboardCheck, Wallet, FileText, Hammer, Package, Users,
+  FileSignature, Bell, BarChart3, ShieldCheck, Settings, Menu, Search, LogOut, ChevronDown, UserCircle2, Plus, Sun,
 } from 'lucide-react';
 import type { Permission } from '@nexus/shared';
 import { useAuth } from '../lib/auth';
@@ -23,18 +23,18 @@ export interface NavItem {
 /** Sade menü: en çok kullanılanlar üstte, kısa adlar. "Yönetim" grubu varsayılan olarak kapalı. */
 export const NAV: NavItem[] = [
   { to: '/', label: 'Ana Sayfa', icon: LayoutDashboard, perm: ['dashboard.view'], section: 'Günlük' },
-  { to: '/work-orders', label: 'İş Emirleri', icon: ClipboardList, perm: ['workorders.view'] },
   { to: '/calendar', label: 'Takvim', icon: CalendarDays, perm: ['calendar.view'] },
   { to: '/vessels', label: 'Tekneler', icon: Ship, perm: ['vessels.view'] },
   { to: '/customers', label: 'Müşteriler', icon: Users, perm: ['customers.view'] },
-  { to: '/maintenance', label: 'Bakım Planları', icon: Wrench, perm: ['maintenance.view'], section: 'Operasyon' },
-  { to: '/technicians', label: 'Teknisyenler', icon: HardHat, perm: ['technicians.view'] },
-  { to: '/inspections', label: 'Denetimler', icon: ClipboardCheck, perm: ['inspections.view'] },
-  { to: '/reports', label: 'Raporlar ve Sözleşmeler', icon: FileText, perm: ['reports.manage'] },
+  { to: '/work-orders', label: 'İş Emirleri', icon: ClipboardList, perm: ['workorders.view'], section: 'Operasyon' },
+  { to: '/maintenance', label: 'Bakım Planları', icon: Wrench, perm: ['maintenance.view'] },
   { to: '/projects', label: 'Projeler', icon: Hammer, perm: ['projects.manage'] },
+  { to: '/technicians', label: 'Teknisyenler', icon: HardHat, perm: ['technicians.view'] },
   { to: '/inventory', label: 'Stok', icon: Package, perm: ['inventory.view'] },
-  { to: '/finance', label: 'Teklifler ve Finans', icon: Receipt, perm: ['finance.view'], section: 'Ticari' },
-  { to: '/documents', label: 'Belgeler', icon: FolderOpen, perm: ['documents.manage'] },
+  { to: '/reports', label: 'Raporlar', icon: FileText, perm: ['reports.manage'], section: 'Belgeler' },
+  { to: '/inspections', label: 'Denetimler', icon: ClipboardCheck, perm: ['inspections.view'] },
+  { to: '/contracts', label: 'Sözleşmeler', icon: FileSignature, perm: ['reports.manage'], section: 'Ticari' },
+  { to: '/collections', label: 'Finans ve Tahsilat', icon: Wallet, perm: ['finance.view'] },
   { to: '/analytics', label: 'Yönetim Raporları', icon: BarChart3, perm: ['analytics.view'], section: 'Yönetim' },
   { to: '/users', label: 'Kullanıcılar', icon: ShieldCheck, perm: ['users.manage'] },
   { to: '/settings', label: 'Ayarlar', icon: Settings, perm: ['settings.manage'] },
@@ -56,7 +56,8 @@ const QUICK: Array<{ label: string; to: string; icon: typeof Ship; perm: Permiss
   { label: 'Bakım planı', to: '/maintenance?new=1', icon: Wrench, perm: ['maintenance.manage'] },
   { label: 'Denetim', to: '/inspections?new=1', icon: ClipboardCheck, perm: ['inspections.perform'] },
   { label: 'Müşteri / kullanıcı', to: '/users?new=1', icon: Users, perm: ['users.manage'] },
-  { label: 'Rapor / sözleşme', to: '/reports?new=1', icon: FileText, perm: ['reports.manage'] },
+  { label: 'Rapor', to: '/reports?new=1', icon: FileText, perm: ['reports.manage'] },
+  { label: 'Sözleşme', to: '/contracts?new=1', icon: FileSignature, perm: ['reports.manage'] },
 ];
 
 export function useUnread() {
@@ -66,7 +67,7 @@ export function useUnread() {
 export const isTechOnly = (roles: string[] = [], manager = false) => !manager && roles.includes('TECHNICIAN');
 
 const readCollapsed = (): Record<string, boolean> => {
-  try { return JSON.parse(localStorage.getItem('nav.collapsed') ?? '') ?? { Yönetim: true }; } catch { return { Yönetim: true }; }
+  try { return JSON.parse(localStorage.getItem('nav.collapsed.v2') ?? '') ?? {}; } catch { return {}; }
 };
 
 export default function AdminLayout() {
@@ -93,7 +94,7 @@ export default function AdminLayout() {
   const tech = isTechOnly(user?.roles, manager);
   const items = (tech ? TECH_NAV : NAV).filter((n) => can(...n.perm));
   const quickItems = QUICK.filter((q) => can(...q.perm));
-  const toggle = (s: string) => setCollapsed((c) => { const n = { ...c, [s]: !c[s] }; try { localStorage.setItem('nav.collapsed', JSON.stringify(n)); } catch { /* yok say */ } return n; });
+  const toggle = (s: string) => setCollapsed((c) => { const n = { ...c, [s]: !c[s] }; try { localStorage.setItem('nav.collapsed.v2', JSON.stringify(n)); } catch { /* yok say */ } return n; });
 
   // Bölümlere ayır
   const groups: Array<{ section: string; items: NavItem[] }> = [];
@@ -119,8 +120,8 @@ export default function AdminLayout() {
             <LogoMark />
           </div>
           <div className="brand-text">
-            <b>NEXUS MARINE</b>
-            <span>{tech ? 'Teknisyen' : 'Yacht Operations'}</span>
+            <b>NEXUS</b>
+            <span>{tech ? 'Teknisyen Paneli' : 'Marin ve Yatçılık Hizmetleri'}</span>
           </div>
         </div>
         <nav className="nav">
@@ -144,7 +145,7 @@ export default function AdminLayout() {
             );
           })}
         </nav>
-        <div className="sidebar-foot">© {new Date().getFullYear()} Nexus Marine · v1.1</div>
+        <div className="sidebar-foot">© {new Date().getFullYear()} Nexus Marin ve Yatçılık · v1.2</div>
       </aside>
       <div className={`backdrop${open ? ' open' : ''}`} onClick={() => setOpen(false)} />
       <div className="main">

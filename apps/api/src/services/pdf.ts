@@ -13,6 +13,7 @@ import {
   REPORT_STATUS_LABELS,
   type InspectionResult,
   type ReportType,
+  toSectionsData,
 } from '@nexus/shared';
 import { fileURLToPath } from 'url';
 import { prisma } from '../db';
@@ -45,7 +46,7 @@ const M = 42; // kenar boşluğu
 type Doc = PDFKit.PDFDocument;
 
 function createDoc(meta: { title: string; number: string; date: Date; draft: boolean; subtitle?: string }) {
-  const doc = new PDFDocument({ size: 'A4', margins: { top: 96, bottom: 60, left: M, right: M }, bufferPages: true, info: { Title: meta.title, Author: 'Nexus Marine' } });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 96, bottom: 60, left: M, right: M }, bufferPages: true, info: { Title: meta.title, Author: 'Nexus Marin ve Yatçılık Hizmetleri' } });
   if (FONT_DIR) {
     doc.registerFont('R', path.join(FONT_DIR, 'Inter-Regular.otf'));
     doc.registerFont('S', path.join(FONT_DIR, 'Inter-SemiBold.otf'));
@@ -63,16 +64,22 @@ function createDoc(meta: { title: string; number: string; date: Date; draft: boo
   return doc;
 }
 
+/** Resmi logo (çapa + dümen amblemi) */
+const LOGO_FILE = [path.resolve(__dirname, '../../assets/brand/nexus-emblem.png'), path.resolve(__dirname, '../assets/brand/nexus-emblem.png'), path.resolve(process.cwd(), 'assets/brand/nexus-emblem.png')].find((f) => fs.existsSync(f));
+
 function logo(doc: Doc, x: number, y: number) {
-  doc.save();
-  doc.roundedRect(x, y, 34, 34, 7).fill(C.marine);
-  // dalga + pusula amblemi
-  doc.lineWidth(2).strokeColor('#FFFFFF');
-  doc.moveTo(x + 7, y + 21).bezierCurveTo(x + 11, y + 17, x + 15, y + 25, x + 19, y + 21).bezierCurveTo(x + 23, y + 17, x + 26, y + 24, x + 28, y + 21).stroke();
-  doc.moveTo(x + 17, y + 6).lineTo(x + 22, y + 16).lineTo(x + 12, y + 16).closePath().fill('#FFFFFF');
-  doc.restore();
-  doc.font('B').fontSize(14).fillColor('#FFFFFF').text('NEXUS MARINE', x + 44, y + 4, { lineBreak: false });
-  doc.font('R').fontSize(7.5).fillColor('#B8CDE3').text('YACHT SERVICES · TECHNICAL OPERATIONS', x + 44, y + 22, { lineBreak: false, characterSpacing: 0.6 });
+  if (LOGO_FILE) {
+    doc.save();
+    doc.circle(x + 18, y + 17, 19).fill('#FFFFFF');
+    doc.image(LOGO_FILE, x + 0.5, y - 0.5, { width: 35, height: 35 });
+    doc.restore();
+  } else {
+    doc.save();
+    doc.circle(x + 17, y + 17, 17).fill(C.marine);
+    doc.restore();
+  }
+  doc.font('B').fontSize(15).fillColor('#FFFFFF').text('NEXUS', x + 46, y + 3, { lineBreak: false, characterSpacing: 0.5 });
+  doc.font('R').fontSize(7.5).fillColor('#D9C19A').text('MARİN VE YATÇILIK HİZMETLERİ', x + 46, y + 22, { lineBreak: false, characterSpacing: 0.6 });
 }
 
 function header(doc: Doc, meta: { title: string; number: string; date: Date; draft: boolean; subtitle?: string }) {
@@ -107,7 +114,7 @@ function footer(doc: Doc, meta: { title: string; number: string }) {
     doc.page.margins.bottom = 0;
     doc.moveTo(M, h - 40).lineTo(w - M, h - 40).lineWidth(0.5).strokeColor(C.border).stroke();
     doc.font('R').fontSize(7.5).fillColor(C.muted);
-    doc.text(`Nexus Marine · ${meta.title} · ${meta.number}`, M, h - 32, { width: w - 2 * M - 80, lineBreak: false });
+    doc.text(`Nexus Marin ve Yatçılık Hizmetleri · ${meta.title} · ${meta.number}`, M, h - 32, { width: w - 2 * M - 80, lineBreak: false });
     doc.text(`Sayfa ${i + 1} / ${range.count}`, w - M - 80, h - 32, { width: 80, align: 'right', lineBreak: false });
     doc.page.margins.bottom = bottom;
   }
@@ -328,7 +335,7 @@ export async function inspectionPdf(id: string, opts: { includeInternalPhotos: b
     ['Tekne Adı', insp.vessel.name],
     ['Marka & Model', model || '—'],
     ['İşletmeci Şirket', 'Nexus Marin ve Yatçılık Ltd. Şti.'],
-    ['Kaptan / Enspektör', [insp.captainName, insp.inspector.name].filter(Boolean).join(' / ')],
+    ['Kaptan / Enspektör', [insp.captainName, insp.inspectorName || insp.inspector.name].filter(Boolean).join(' / ')],
     ['Kontrol Tarihi / Saati', when],
     ['Lokasyon / Bağlama', `${insp.location ?? insp.vessel.marina ?? '—'} / Peron: ${insp.pier ?? insp.vessel.berth ?? '—'}`],
   ];
@@ -367,7 +374,17 @@ export async function inspectionPdf(id: string, opts: { includeInternalPhotos: b
     doc.rect(M, y, W, 26).fill(C.navy);
     let x = M;
     cols.forEach((c, i) => {
-      doc.font('S').fontSize(6.6).fillColor('#FFFFFF').text(c.label, x + 3, y + (c.res ? 4 : 9), { width: widths[i] - 6, align: c.res ? 'center' : 'left', lineGap: 0 });
+      if (c.res) {
+        // İki satırlık durum başlığı: her satır sütunun tam ortasına
+        const [l1, l2] = c.label.split('\n');
+        const cxm = x + widths[i] / 2;
+        doc.font('S').fontSize(6.4).fillColor('#FFFFFF');
+        doc.text(l1, cxm - doc.widthOfString(l1) / 2, y + 5, { lineBreak: false });
+        doc.font('R').fontSize(6.4).fillColor('#C9D9EA');
+        doc.text(l2, cxm - doc.widthOfString(l2) / 2, y + 14, { lineBreak: false });
+      } else {
+        doc.font('S').fontSize(6.6).fillColor('#FFFFFF').text(c.label, x + 3, y + 9.5, { width: widths[i] - 6, lineBreak: false });
+      }
       x += widths[i];
     });
     doc.y = y + 26;
@@ -476,7 +493,7 @@ export async function inspectionPdf(id: string, opts: { includeInternalPhotos: b
   y = doc.y;
   const bw = W / 2;
   const boxes = [
-    { head: 'Denetimi Yapan Kaptan / Enspektör:', lines: [['İsim - Soyisim', insp.inspector.name], ['Görevi', insp.inspectorTitle ?? 'Teknik Enspektör'], ['İmza', insp.submittedAt ? `Elektronik onay · ${fmtDate(insp.submittedAt)}` : '']] },
+    { head: 'Denetimi Yapan Kaptan / Enspektör:', lines: [['İsim - Soyisim', insp.inspectorName || insp.inspector.name], ['Görevi', insp.inspectorTitle ?? 'Teknik Enspektör'], ['İmza', insp.submittedAt ? `Elektronik onay · ${fmtDate(insp.submittedAt)}` : '']] },
     { head: 'Nexus Marin ve Yatçılık Yetkilisi Onayı:', lines: [['İsim - Soyisim', approver?.name ?? ''], ['Kaşe & İmza', insp.approvedAt ? `Elektronik onay · ${fmtDate(insp.approvedAt)}` : ''], ['Denetim Tarihi', d.toLocaleDateString('tr-TR')]] },
   ];
   boxes.forEach((b, i) => {
@@ -535,17 +552,26 @@ export async function reportPdf(reportId: string, version: number | undefined, o
 
   // Örnek belgelerle birebir düzen: teklif dosyası, kazıma raporu, teslim protokolü
   const isDocument =
-    report.type === 'PROJECT_PROPOSAL' || (report.type === 'DELIVERY_PROTOCOL' && Array.isArray(data.parties)) || (report.type === 'POST_SCRAPING' && Array.isArray(data.starboard));
+    report.type === 'PROJECT_PROPOSAL' || (report.type === 'DELIVERY_PROTOCOL' && Array.isArray(data.parties)) || (report.type === 'POST_SCRAPING' && (Array.isArray(data.starboard) || Array.isArray(data.sections))) || report.type === 'CUSTOM' || report.type === 'WEEKLY_SERVICE';
   if (isDocument) {
     const customerApproval = report.approvalStatus === 'APPROVED' ? { by: report.approvalDecidedBy, at: report.approvalDecidedAt } : null;
     if (report.type === 'PROJECT_PROPOSAL') renderProposal(doc, data, customerApproval);
-    if (report.type === 'POST_SCRAPING') renderScraping(doc, data);
+    if (report.type === 'POST_SCRAPING' || report.type === 'CUSTOM') renderSections(doc, data);
     if (report.type === 'DELIVERY_PROTOCOL') renderProtocol(doc, data, customerApproval);
+    if (report.type === 'WEEKLY_SERVICE') renderWeekly(doc, data);
+    // Belgeye sonradan eklenen serbest başlıklar
+    for (const sec of (data.extraSections ?? []) as Array<{ title?: string; intro?: string; items?: string[] }>) {
+      ensureSpace(doc, 40);
+      doc.moveDown(0.3);
+      plain(doc, sec.title, { bold: true, size: 11, color: C.navy });
+      plain(doc, sec.intro, { bold: true });
+      for (const t of sec.items ?? []) if (String(t ?? '').trim()) richLine(doc, '•', undefined, t);
+    }
     if (data.preparedNotes) paragraph(doc, 'Ek açıklamalar', data.preparedNotes);
     approvalStamp(doc, report);
     const atts = await prisma.attachment.findMany({ where: { entityType: 'REPORT', entityId: report.id, ...(opts.includeInternalPhotos ? {} : { customerVisible: true }) }, orderBy: { createdAt: 'asc' } });
     await photos(doc, atts);
-    if (report.type === 'POST_SCRAPING') {
+    if (report.type === 'POST_SCRAPING' || report.type === 'CUSTOM' || report.type === 'WEEKLY_SERVICE') {
       signatures(doc, [
         { role: 'Hazırlayan', name: data.preparedBy ?? preparer?.name, date: ver?.createdAt, signed: true },
         { role: 'Onaylayan', name: approver?.name, date: ver?.approvedAt, signed: !!ver?.approvedAt },
@@ -760,14 +786,19 @@ function renderProposal(doc: Doc, d: Record<string, any>, approved: Approval) {
   ]);
 }
 
-function renderScraping(doc: Doc, d: Record<string, any>) {
-  docHeading(doc, 'NEXUS MARİN VE YATÇILIK LTD. ŞTİ.', 'KAZIMA SONRASI TEKNİK İNCELEME RAPORU');
-  plain(doc, d.heading, { bold: true, size: 13, color: C.navy });
-  plain(doc, d.starboardIntro, { bold: true });
-  for (const t of d.starboard ?? []) richLine(doc, '•', undefined, t);
-  doc.moveDown(0.3);
-  plain(doc, d.portTitle, { bold: true, size: 11, color: C.navy });
-  for (const t of d.port ?? []) richLine(doc, '•', undefined, t);
+/** Serbest başlıklı belge: kazıma raporu ve özel raporlar (eski iskele/sancak biçimi de desteklenir) */
+function renderSections(doc: Doc, d: Record<string, any>) {
+  const sd = toSectionsData(d) ?? { docTitle: 'RAPOR', heading: '', sections: [] };
+  docHeading(doc, 'NEXUS MARİN VE YATÇILIK LTD. ŞTİ.', sd.docTitle || 'RAPOR');
+  plain(doc, sd.heading, { bold: true, size: 13, color: C.navy });
+  for (const sec of sd.sections) {
+    ensureSpace(doc, 40);
+    doc.moveDown(0.3);
+    plain(doc, sec.title, { bold: true, size: 11, color: C.navy });
+    plain(doc, sec.intro, { bold: true });
+    for (const t of sec.items ?? []) if (String(t ?? '').trim()) richLine(doc, '•', undefined, t);
+  }
+  if (sd.closing) { doc.moveDown(0.3); plain(doc, sd.closing); }
   // İsteğe bağlı ek teknik veriler
   if (d.damages?.length) {
     sectionHeading(doc, 'Tespit Edilen Hasarlar');
@@ -819,6 +850,173 @@ function renderProtocol(doc: Doc, d: Record<string, any>, approved: Approval) {
     { head: 'İşveren (Tekne Sahibi / Yetkilisi)', lines: [['Adı Soyadı', d.employerSign?.name ?? ''], ['İmza', ''], ['Tarih', d.employerSign?.date ?? '']], approved },
     { head: 'Yüklenici (Nexus Marin ve Yatçılık Ltd. Şti.)', lines: [['Adı Soyadı', d.contractorSign?.name ?? ''], ['İmza / Kaşe', ''], ['Tarih', d.contractorSign?.date ?? '']] },
   ]);
+}
+
+const TL_COLORS: Record<string, string> = { done: C.ok, active: C.warn, maint: '#6D4BD8', planned: C.marine };
+function drawTimeline(doc: Doc, heading: string, days: string[] | undefined, tl: any[], legend: Array<[string, string]>) {
+  if (!Array.isArray(days) || !tl.length) return;
+  const DAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  const W = contentWidth(doc);
+  sectionHeading(doc, heading);
+  const labelW = W * 0.34;
+  const dayW = (W - labelW) / 7;
+  const rowH = 18;
+  const head = () => {
+    const hy = doc.y;
+    doc.rect(M, hy, W, 22).fill(C.navy);
+    days.forEach((ds: string, i: number) => {
+      const x = M + labelW + i * dayW;
+      doc.font('S').fontSize(6.8).fillColor('#9FC0E3').text(DAYS[i], x, hy + 3, { width: dayW, align: 'center', lineBreak: false });
+      doc.font('B').fontSize(8).fillColor('#FFFFFF').text(String(new Date(ds).getDate()), x, hy + 12, { width: dayW, align: 'center', lineBreak: false });
+    });
+    doc.y = hy + 22;
+  };
+  ensureSpace(doc, 22 + rowH * Math.min(tl.length, 4) + 20);
+  head();
+  tl.forEach((t: any, ri: number) => {
+    if (doc.y + rowH > doc.page.height - doc.page.margins.bottom) { doc.addPage(); head(); }
+    const ry = doc.y;
+    if (ri % 2 === 1) doc.rect(M, ry, W, rowH).fill(C.bg);
+    for (let i = 0; i <= 7; i++) doc.moveTo(M + labelW + i * dayW, ry).lineTo(M + labelW + i * dayW, ry + rowH).lineWidth(0.3).strokeColor(C.border).stroke();
+    doc.font('S').fontSize(7.2).fillColor(C.text).text(`${t.ref ? t.ref + ' · ' : ''}${t.title ?? ''}`, M + 5, ry + 5.5, { width: labelW - 10, lineBreak: false, ellipsis: true });
+    const from = Math.max(0, Math.min(6, Number(t.from) || 0));
+    const to = Math.max(from, Math.min(6, Number(t.to) || 0));
+    const bx = M + labelW + from * dayW + 1.5;
+    const bw = (to - from + 1) * dayW - 3;
+    doc.roundedRect(bx, ry + 3.5, bw, rowH - 7, 3).fill(TL_COLORS[t.kind] ?? C.marine);
+    doc.font('S').fontSize(6.3).fillColor('#FFFFFF').text(t.status ?? '', bx + 4, ry + 6.5, { width: bw - 8, lineBreak: false, ellipsis: true });
+    doc.y = ry + rowH;
+  });
+  doc.moveTo(M, doc.y).lineTo(M + W, doc.y).lineWidth(0.5).strokeColor(C.border).stroke();
+  const ly = doc.y + 5;
+  let lx = M;
+  for (const [k, l] of legend) {
+    doc.rect(lx, ly + 1, 8, 8).fill(TL_COLORS[k]);
+    doc.font('R').fontSize(7.2).fillColor(C.text).text(l, lx + 12, ly + 1, { lineBreak: false });
+    lx += doc.widthOfString(l) + 30;
+  }
+  doc.y = ly + 18;
+  doc.x = M;
+}
+
+function renderWeekly(doc: Doc, d: Record<string, any>) {
+  const day = (s?: string | null) => (s ? new Date(s).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) : '—');
+  docHeading(doc, 'NEXUS MARİN VE YATÇILIK HİZMETLERİ', 'HAFTALIK BAKIM VE SERVİS RAPORU', `${d.weekKey ?? ''} · ${fmtDate(d.weekStart)} – ${fmtDate(d.weekEnd)}`);
+  // Kullanıcının adını değiştirdiği / kaldırdığı bölümler
+  const hid = (k: string) => ((d.hidden ?? []) as string[]).includes(k);
+  const tt = (k: string, def: string) => (d.titles?.[k] as string | undefined)?.trim() || def;
+  kvGrid(doc, [['Tekne', d.vessel?.name], ['Marka / Model', d.vessel?.model], ['Marina / Bağlama', d.vessel?.marina], ['Tekne sahibi', d.vessel?.owner]], 2);
+  if (!hid('summary')) {
+    sectionHeading(doc, tt('summary', 'Haftanın Özeti'));
+    plain(doc, d.summary);
+  }
+  const s = d.stats ?? {};
+  // Özet kutucukları
+  const tiles: Array<[string, string | number, string]> = [
+    ['Tamamlanan iş', s.completed ?? 0, C.ok],
+    ['Devam eden', s.active ?? 0, C.warn],
+    ['Gelecek hafta', s.upcoming ?? 0, C.marine],
+    ['Yeni arıza', s.newFaults ?? 0, (s.newFaults ?? 0) > 0 ? C.fault : C.muted],
+    ['Açık arıza', s.openFaults ?? 0, (s.openFaults ?? 0) > 0 ? C.fault : C.muted],
+  ];
+  ensureSpace(doc, 56);
+  const W = contentWidth(doc);
+  const tw = (W - 4 * 8) / 5;
+  const y0 = doc.y;
+  tiles.forEach(([label, val, color], i) => {
+    const x = M + i * (tw + 8);
+    doc.roundedRect(x, y0, tw, 44, 4).fill(C.bg);
+    doc.rect(x, y0, 3, 44).fill(color);
+    doc.font('B').fontSize(16).fillColor(color).text(String(val), x + 10, y0 + 6, { width: tw - 14, lineBreak: false });
+    doc.font('R').fontSize(7.2).fillColor(C.text).text(label, x + 10, y0 + 28, { width: tw - 14, lineBreak: false });
+  });
+  doc.y = y0 + 54;
+  doc.x = M;
+  // ── Bu hafta ve gelecek hafta zaman çizelgeleri ──
+  if (!hid('timeline')) drawTimeline(doc, tt('timeline', 'Bu Hafta — Zaman Çizelgesi'), d.days, d.timeline ?? [], [['done', 'Tamamlanan'], ['active', 'Devam eden'], ['maint', 'Periyodik bakım']]);
+  if (!hid('nextTimeline')) drawTimeline(doc, tt('nextTimeline', 'Gelecek Hafta Yapılacak İşler — Zaman Çizelgesi'), d.nextDays, d.nextTimeline ?? [], [['planned', 'Planlanan iş'], ['maint', 'Periyodik bakım']]);
+
+  if (d.completed?.length && !hid('completed')) {
+    sectionHeading(doc, tt('completed', 'Bu Hafta Tamamlanan İşler'));
+    table(doc, [{ label: 'İŞ EMRİ', width: 1.2 }, { label: 'İŞ', width: 3.8 }, { label: 'TEKNİSYEN', width: 1.6 }, { label: 'TARİH', width: 0.9 }], d.completed.map((w: any) => [w.ref, w.note ? `${w.title}
+${w.note}` : w.title, w.technician, day(w.date)]));
+  }
+  if (d.active?.length && !hid('active')) {
+    sectionHeading(doc, tt('active', 'Devam Eden İşler'));
+    table(doc, [{ label: 'İŞ EMRİ', width: 1.2 }, { label: 'İŞ', width: 3.6 }, { label: 'TEKNİSYEN', width: 1.6 }, { label: 'DURUM', width: 1.4 }], d.active.map((w: any) => [w.ref, w.title, w.technician, w.status]));
+  }
+  if (d.upcoming?.length && !hid('upcoming')) {
+    sectionHeading(doc, tt('upcoming', 'Gelecek Hafta Planlanan İşler'));
+    table(doc, [{ label: 'İŞ EMRİ', width: 1.2 }, { label: 'İŞ', width: 3.6 }, { label: 'TEKNİSYEN', width: 1.6 }, { label: 'TARİH', width: 1 }], d.upcoming.map((w: any) => [w.ref, w.title, w.technician, day(w.date)]));
+  }
+  if (d.maintenance?.length && !hid('maintenance')) {
+    sectionHeading(doc, tt('maintenance', 'Periyodik Bakımlar'));
+    table(doc, [{ label: 'BAKIM', width: 4 }, { label: 'TARİH', width: 1 }, { label: 'DURUM', width: 1.4 }], d.maintenance.map((m: any) => [m.title, day(m.date), { text: m.status, color: m.status === 'Gecikmiş' ? C.fault : m.status === 'Tamamlandı' ? C.ok : C.text, bold: true }]));
+  }
+  if (d.inspection && !hid('inspection')) {
+    sectionHeading(doc, tt('inspection', 'Haftalık Teknik Denetim'));
+    kvGrid(doc, [['Denetim', `${d.inspection.number} · ${fmtDate(d.inspection.date)}`], ['Durum', d.inspection.status], ['Operasyonel statü', d.inspection.operational || '—'], ['Sonuç', `${d.inspection.ok} uygun · ${d.inspection.attention} dikkat · ${d.inspection.fault} arıza`]], 2);
+  }
+  if (d.faults?.length && !hid('faults')) {
+    sectionHeading(doc, tt('faults', 'Bu Hafta Bildirilen Arızalar'));
+    table(doc, [{ label: 'ARIZA', width: 4 }, { label: 'TARİH', width: 1 }, { label: 'DURUM', width: 1.4 }], d.faults.map((f: any) => [f.title, day(f.date), f.status]));
+  }
+  if (d.materials?.length && !hid('materials')) {
+    sectionHeading(doc, tt('materials', 'Kullanılan Malzemeler'));
+    table(doc, [{ label: 'MALZEME', width: 4 }, { label: 'MİKTAR', width: 1.4, align: 'right' }], d.materials.map((m: any) => [m.name, `${m.quantity} ${m.unit}`]));
+  }
+  if (d.notes && !hid('notes')) {
+    sectionHeading(doc, tt('notes', 'Notlar'));
+    plain(doc, d.notes);
+  }
+}
+
+// ───────────────────────── Tahsilat makbuzu (basit) ─────────────────────────
+const money = (n: number | null | undefined, cur: string) => (n == null ? '—' : new Intl.NumberFormat('tr-TR', { style: 'currency', currency: cur, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n));
+
+export async function receiptPdf(paymentId: string) {
+  const p = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { customer: true } });
+  const r = p.reportId ? await prisma.report.findUnique({ where: { id: p.reportId }, include: { vessel: true } }) : null;
+  const all = r ? await prisma.payment.findMany({ where: { reportId: r.id, currency: p.currency } }) : [p];
+  const collected = all.reduce((s, x) => s + x.amount, 0);
+  const number = p.number ?? p.id.slice(-8).toUpperCase();
+  const doc = createDoc({ title: 'Tahsilat Makbuzu', number, date: p.date, draft: false });
+  docHeading(doc, 'NEXUS MARİN VE YATÇILIK LTD. ŞTİ.', 'TAHSİLAT MAKBUZU', number);
+  kvGrid(doc, [
+    ['Makbuz no', number],
+    ['Tahsilat tarihi', fmtDate(p.date)],
+    ['Müşteri', p.customer.name],
+    ['Tekne', r?.vessel.name],
+    ['Sözleşme', r ? `${r.number} · ${r.title}` : '—'],
+    ['Ödeme yöntemi', p.method],
+  ], 2);
+  // Tutar kutusu
+  ensureSpace(doc, 70);
+  const W = contentWidth(doc);
+  const y0 = doc.y + 4;
+  doc.roundedRect(M, y0, W, 56, 6).fill(C.bg);
+  doc.rect(M, y0, 4, 56).fill(C.ok);
+  doc.font('R').fontSize(8).fillColor(C.muted).text('TAHSİL EDİLEN TUTAR', M + 16, y0 + 10, { characterSpacing: 0.4 });
+  doc.font('B').fontSize(22).fillColor(C.navy).text(money(p.amount, p.currency), M + 16, y0 + 24, { lineBreak: false });
+  doc.y = y0 + 70;
+  doc.x = M;
+  if (r?.contractAmount) {
+    sectionHeading(doc, 'Sözleşme Ödeme Durumu');
+    const remaining = r.paidAt ? 0 : Math.max(0, r.contractAmount - collected);
+    table(doc, [{ label: 'KALEM', width: 4 }, { label: 'TUTAR', width: 2, align: 'right' }], [
+      ['Sözleşme bedeli', money(r.contractAmount, r.contractCurrency)],
+      ['Toplam tahsil edilen (bu makbuz dahil)', money(collected, p.currency)],
+      [{ text: 'Kalan', bold: true }, { text: money(remaining, r.contractCurrency), bold: true, color: remaining > 0 ? C.warn : C.ok }],
+    ]);
+  }
+  if (p.note) paragraph(doc, 'Açıklama', p.note);
+  plain(doc, `Yukarıda belirtilen tutar ${fmtDate(p.date)} tarihinde tahsil edilmiştir.`);
+  signatures(doc, [
+    { role: 'Teslim alan (Nexus Marin)', name: p.receivedBy },
+    { role: 'Ödeme yapan', name: p.customer.name },
+  ]);
+  finalize(doc);
+  return doc;
 }
 
 /** Bir PDF'i buffer olarak üretir (testler ve arşivleme için) */

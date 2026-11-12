@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { FileText, Save, Send, CheckCircle2, Globe, Plus, Trash2, Download, ShieldAlert, XCircle, Clock } from 'lucide-react';
-import { APPROVAL_REPORT_TYPES, REPORT_TYPES, type ReportType } from '@nexus/shared';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { FileText, Save, Send, CheckCircle2, Globe, Plus, Trash2, Download, ShieldAlert, XCircle, Clock, RefreshCw, Copy, Star, ChevronDown, ChevronRight, RotateCcw, LayoutTemplate, Pencil } from 'lucide-react';
+import { APPROVAL_REPORT_TYPES, REPORT_TYPES, migrateSections, type ReportType } from '@nexus/shared';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, authedUrl } from '../lib/api';
@@ -9,19 +9,28 @@ import { Badge, Card, Field, Loading, Modal, PageHeader, StatusBadge } from '../
 import { Gallery, Uploader } from '../components/media';
 import { fmtDate, fmtDateTime, toInputDate } from '../lib/format';
 import { REPORT_STATUS_LABELS, REPORT_TONE } from '../lib/labels';
-import { ProposalDoc, ProtocolDoc, ScrapingDoc } from './reportDocs';
+import { ProposalDoc, ProtocolDoc, SectionsDoc, WeeklyDoc } from './reportDocs';
+import { groupOf } from './Reports';
 
 export default function ReportDetail() {
   const { id } = useParams();
   const { can, staff, manager } = useAuth();
   const { data: r } = useApi<any>(`/reports/${id}`);
+  // Sözleşme belgeleri /contracts/:id altında açılır (sol menüde Sözleşmeler seçili kalır)
+  const loc = useLocation();
+  const nav = useNavigate();
+  useEffect(() => {
+    if (!r || !staff) return;
+    const grp = (r.category?.group ?? groupOf(r.type)) === 'contracts' ? 'contracts' : 'reports';
+    if (!loc.pathname.startsWith(`/${grp}/`)) nav(`/${grp}/${r.id}${loc.search}`, { replace: true });
+  }, [r?.id, r?.category?.group, staff]); // eslint-disable-line react-hooks/exhaustive-deps
   const files = useApi<any[]>('/files', { entityType: 'REPORT', entityId: id }).data ?? [];
   const latest = r?.versions?.[0];
   const [data, setData] = useState<any>(null);
   const [title, setTitle] = useState('');
   const [approve, setApprove] = useState(false);
   useEffect(() => {
-    if (latest) setData(structuredClone(latest.data));
+    if (latest) setData(normalize(r?.type, structuredClone(latest.data)));
     if (r) setTitle(r.title);
   }, [latest?.id, latest?.version, r?.title]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -30,13 +39,17 @@ export default function ReportDetail() {
   const publish = useAction(() => api(`/reports/${id}/publish`, { body: {} }), { success: 'Rapor müşteriye yayınlandı' });
   const requestApproval = useAction(() => api(`/reports/${id}/request-approval`, { body: {} }), { success: 'Belge müşteri onayına gönderildi' });
   const [decision, setDecision] = useState<'APPROVED' | 'REJECTED' | null>(null);
+  const [tplOpen, setTplOpen] = useState(false);
+  const refresh = useAction(() => api(`/reports/${id}/refresh-weekly`, { body: {} }), { success: 'Veriler iş emirlerinden yenilendi' });
 
   if (!r || !data) return <Loading />;
   const editable = can('reports.manage') && r.type !== 'INSPECTION';
   const approvedVersion = latest && ['APPROVED', 'PUBLISHED'].includes(latest.status);
-  const set = (k: string, v: any) => setData({ ...data, [k]: v });
+  const set = (k: string, v: any) => setData((prev: any) => ({ ...prev, [k]: v }));
   // Örnek belgelerle birebir düzenlenen belge türleri
-  const docMode = r.type === 'PROJECT_PROPOSAL' || (r.type === 'DELIVERY_PROTOCOL' && Array.isArray(data.parties)) || (r.type === 'POST_SCRAPING' && Array.isArray(data.starboard));
+  const sectionsDoc = r.type === 'CUSTOM' || (r.type === 'POST_SCRAPING' && Array.isArray(data.sections));
+  const docMode = r.type === 'PROJECT_PROPOSAL' || (r.type === 'DELIVERY_PROTOCOL' && Array.isArray(data.parties)) || sectionsDoc || r.type === 'WEEKLY_SERVICE';
+  const canTemplate = can('reports.approve') && !['INSPECTION', 'WEEKLY_SERVICE'].includes(r.type);
   const approvalType = (APPROVAL_REPORT_TYPES as readonly string[]).includes(r.type);
   const approval = r.approvalStatus === 'APPROVED' ? { by: r.approvalDecidedBy, at: r.approvalDecidedAt } : null;
   const canDecide = r.approvalStatus === 'PENDING' && (!staff || manager);
@@ -44,13 +57,14 @@ export default function ReportDetail() {
   return (
     <div>
       <PageHeader
-        crumbs={staff ? <><Link to="/reports">Teknik Raporlar</Link> / {r.number}</> : undefined}
+        crumbs={staff ? <>{(r.category?.group ?? groupOf(r.type)) === 'contracts' ? <Link to="/contracts">Sözleşmeler</Link> : <Link to="/reports">Raporlar</Link>} / {r.number}</> : undefined}
         title={r.title}
-        sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{r.number}</span><span>{REPORT_TYPES[r.type as ReportType]}</span><StatusBadge map={REPORT_TONE} labels={REPORT_STATUS_LABELS} value={r.status} /><Link to={`/vessels/${r.vessel.id}`}>{r.vessel.name}</Link></span>}
+        sub={<span className="row-wrap" style={{ gap: 8 }}><span className="mono strong">{r.number}</span><span>{r.category?.name ?? REPORT_TYPES[r.type as ReportType]}</span><StatusBadge map={REPORT_TONE} labels={REPORT_STATUS_LABELS} value={r.status} /><Link to={`/vessels/${r.vessel.id}`}>{r.vessel.name}</Link></span>}
         actions={
           <>
             <a className="btn" href={authedUrl(`/reports/${id}/pdf`)} target="_blank" rel="noreferrer"><FileText /> PDF önizle</a>
             {!staff && <a className="btn btn-primary" href={authedUrl(`/reports/${id}/pdf?download=1`)}><Download /> PDF indir</a>}
+            {r.type === 'WEEKLY_SERVICE' && editable && latest?.status === 'DRAFT' && <button className="btn" onClick={() => refresh.mutate(undefined)}><RefreshCw /> Verileri yenile</button>}
             {editable && <button className="btn" onClick={() => save.mutate(undefined)}><Save /> {approvedVersion ? 'Yeni sürüm olarak kaydet' : 'Kaydet'}</button>}
             {editable && latest?.status === 'DRAFT' && <button className="btn" onClick={() => submit.mutate(undefined)}><Send /> Kontrole gönder</button>}
             {can('reports.approve') && latest && ['DRAFT', 'IN_REVIEW'].includes(latest.status) && r.type !== 'INSPECTION' && <button className="btn btn-success" onClick={() => setApprove(true)}><CheckCircle2 /> Onayla</button>}
@@ -90,11 +104,13 @@ export default function ReportDetail() {
           ) : (
             <fieldset disabled={!editable} style={{ border: 0, padding: 0, margin: 0 }} className="stack">
               {staff && <Card title="Kayıt adı (listede görünür)"><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} /></Card>}
-              {docMode && editable && <div className="notice"><FileText /><div>Belgeyi doğrudan sayfa üzerinde düzenleyin: metnin üzerine tıklayın, satırların sağındaki oklarla taşıyın, çöp kutusuyla silin. Değişiklikleri üstteki <b>Kaydet</b> ile saklayın.</div></div>}
+              {docMode && editable && <div className="notice"><FileText /><div>Belgeyi doğrudan sayfa üzerinde düzenleyin: metnin üzerine tıklayın, satırların sağındaki oklarla taşıyın, çöp kutusuyla silin. <b>Yeni başlık ekle</b> ile istediğiniz bölümü ekleyin. PDF bu içerikle birebir oluşur; değişiklikleri üstteki <b>Kaydet</b> ile saklayın.</div></div>}
               {r.type === 'PROJECT_PROPOSAL' && <ProposalDoc d={data} set={set} disabled={!editable} approval={approval} />}
-              {r.type === 'POST_SCRAPING' && (docMode ? <ScrapingDoc d={data} set={set} disabled={!editable} /> : <PostScraping d={data} set={set} />)}
+              {sectionsDoc && <SectionsDoc d={data} set={set} disabled={!editable} />}
+              {r.type === 'POST_SCRAPING' && !sectionsDoc && <PostScraping d={data} set={set} />}
               {r.type === 'HULL_RESTORATION' && <HullRestoration d={data} set={set} />}
               {r.type === 'TEAK_CARPENTRY' && <Teak d={data} set={set} />}
+              {r.type === 'WEEKLY_SERVICE' && <WeeklyDoc d={data} set={set} disabled={!editable} />}
               {r.type === 'DELIVERY_PROTOCOL' && (docMode ? <ProtocolDoc d={data} set={set} disabled={!editable} approval={approval} /> : <Delivery d={data} set={set} />)}
               {(!docMode || data.preparedNotes) && <Card title="Ek açıklamalar"><textarea className="textarea" value={data.preparedNotes ?? ''} onChange={(e) => set('preparedNotes', e.target.value)} /></Card>}
             </fieldset>
@@ -108,20 +124,8 @@ export default function ReportDetail() {
           )}
         </div>
         <div className="stack">
-          <Card title="Sürüm geçmişi" pad={false}>
-            {r.versions.map((v: any) => (
-              <div key={v.id} className="list-item">
-                <div className="grow">
-                  <div className="row"><b>v{v.version}</b><StatusBadge map={REPORT_TONE} labels={REPORT_STATUS_LABELS} value={v.status} /></div>
-                  <div className="xs muted">{fmtDateTime(v.createdAt)} · {r.users?.[v.createdById] ?? ''}</div>
-                  {v.approvedAt && <div className="xs" style={{ color: 'var(--ok)' }}>Onay: {r.users?.[v.approvedById]} · {fmtDate(v.approvedAt)}</div>}
-                  {v.changeNote && <div className="xs muted">{v.changeNote}</div>}
-                  {(v.clauses ?? []).length > 0 && <div className="row-wrap mt-1" style={{ gap: 4 }}>{v.clauses.map((c: any) => <Badge key={c.key} tone="violet" plain>{c.key === 'TECHNICAL_COMPLIANCE' ? 'Teknik uygunluk' : c.key === 'DEFECT_FREE_DELIVERY' ? 'Ayıpsız teslim' : c.key === 'WARRANTY' ? 'Garanti' : 'İbra'}</Badge>)}</div>}
-                </div>
-                <a className="btn btn-sm" href={authedUrl(`/reports/${id}/pdf?version=${v.version}`)} target="_blank" rel="noreferrer">PDF</a>
-              </div>
-            ))}
-          </Card>
+          {canTemplate && <TemplatesCard report={r} editable={editable} onSaveNew={() => setTplOpen(true)} />}
+          <VersionsCard report={r} editable={editable} />
           <Card title="Bağlantılar">
             <div className="stack small" style={{ gap: 6 }}>
               <div>Tekne: <Link to={`/vessels/${r.vessel.id}`}>{r.vessel.name}</Link></div>
@@ -133,6 +137,7 @@ export default function ReportDetail() {
         </div>
       </div>
       {approve && <ApproveModal id={r.id} type={r.type} onClose={() => setApprove(false)} />}
+      {tplOpen && <SaveTemplateModal id={r.id} title={r.title} onClose={() => setTplOpen(false)} />}
       {decision && <DecisionModal id={r.id} decision={decision} title={r.title} onBehalf={staff} onClose={() => setDecision(null)} />}
     </div>
   );
@@ -155,7 +160,7 @@ function DecisionModal({ id, decision, title, onBehalf, onClose }: { id: string;
         {ok ? (
           <div className="notice"><CheckCircle2 /><div>{onBehalf ? 'Müşteri adına onay kaydedilecek; kayıtta adınız "müşteri adına" notuyla yer alır.' : 'Belgenin içeriğini okuduğunuzu ve onayladığınızı beyan edersiniz. Onay, adınız ve tarih ile belgeye işlenir.'}</div></div>
         ) : (
-          <div className="notice warn"><ShieldAlert /><div>Reddetme nedeniniz Nexus Marine ekibine iletilir; belge düzeltilip tekrar onayınıza sunulur.</div></div>
+          <div className="notice warn"><ShieldAlert /><div>Reddetme nedeniniz Nexus Marin ekibine iletilir; belge düzeltilip tekrar onayınıza sunulur.</div></div>
         )}
         <Field label={ok ? 'Not (isteğe bağlı)' : 'Reddetme nedeni *'}><textarea className="textarea" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </div>
@@ -287,5 +292,90 @@ function Delivery({ d, set }: P) {
         </div>
       </Card>
     </>
+  );
+}
+
+/** Eski (iskele / sancak alanlı) kazıma verisini serbest başlıklı biçime çevirir */
+function normalize(type: string | undefined, d: any) {
+  return type === 'POST_SCRAPING' && d ? migrateSections(d) : d;
+}
+
+/** Şablonlar: rapor başlığına ait şablonlar — uygula, varsayılan yap, sil, yeni şablon olarak kaydet */
+function TemplatesCard({ report, editable, onSaveNew }: { report: any; editable: boolean; onSaveNew: () => void }) {
+  const q = report.categoryId ? { categoryId: report.categoryId } : { type: report.type };
+  const list = useApi<any[]>('/reports/templates', q).data ?? [];
+  const apply = useAction((templateId: string) => api(`/reports/${report.id}/apply-template`, { body: { templateId } }), { success: 'Şablon belgeye uygulandı' });
+  const upd = useAction((p: { id: string; body: any }) => api(`/reports/templates/${p.id}`, { method: 'PUT', body: p.body }), { success: 'Şablon güncellendi' });
+  const del = useAction((tid: string) => api(`/reports/templates/${tid}`, { method: 'DELETE' }), { success: 'Şablon silindi' });
+  const go = (tid: string, name: string) => confirm(`"${name}" şablonu bu belgeye uygulansın mı?\nBelgenin içeriği şablonla değiştirilir; kaydedilmemiş değişiklikler kaybolur. Önceki içerik sürümlerden geri yüklenebilir.`) && apply.mutate(tid);
+  const hasDefault = list.some((t) => t.isDefault);
+  return (
+    <Card title="Şablonlar" pad={false} action={<button className="btn btn-sm btn-primary" onClick={onSaveNew}><Copy /> Yeni şablon olarak kaydet</button>}>
+      <div className="list-item">
+        <div className="grow">
+          <div className="row" style={{ gap: 6 }}><b>Sistem şablonu</b>{!hasDefault && <Badge tone="ok"><Star size={12} /> Varsayılan</Badge>}</div>
+          <div className="xs muted">Örnek belge (başlangıç içeriği)</div>
+        </div>
+        {editable && <button className="btn btn-sm" onClick={() => go('SYSTEM', 'Sistem şablonu')}>Uygula</button>}
+      </div>
+      {list.map((t) => (
+        <div key={t.id} className="list-item">
+          <div className="grow" style={{ minWidth: 0 }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><b>{t.name}</b>{t.isDefault && <Badge tone="ok"><Star size={12} /> Varsayılan</Badge>}</div>
+            <div className="xs muted">{t.description || fmtDate(t.createdAt)}</div>
+            <div className="row-wrap mt-1" style={{ gap: 4 }}>
+              {!t.isDefault && <button className="btn btn-xs" onClick={() => upd.mutate({ id: t.id, body: { isDefault: true } })}><Star size={12} /> Varsayılan yap</button>}
+              {t.isDefault && <button className="btn btn-xs" onClick={() => upd.mutate({ id: t.id, body: { isDefault: false } })}>Varsayılanı kaldır</button>}
+              <button className="btn btn-xs" onClick={() => { const n = prompt('Şablon adı', t.name); if (n && n.trim().length >= 2) upd.mutate({ id: t.id, body: { name: n.trim() } }); }}><Pencil size={12} /> Ad</button>
+              <button className="btn btn-xs" onClick={() => confirm(`"${t.name}" şablonu silinsin mi?`) && del.mutate(t.id)}><Trash2 size={12} /></button>
+            </div>
+          </div>
+          {editable && <button className="btn btn-sm" onClick={() => go(t.id, t.name)}>Uygula</button>}
+        </div>
+      ))}
+      {!list.length && <div className="list-item xs muted"><LayoutTemplate size={14} /> Bu başlık için kaydedilmiş şablon yok. Belgeyi düzenleyip “Yeni şablon olarak kaydet” deyin.</div>}
+    </Card>
+  );
+}
+
+/** Sürümler: her sürümün PDF'i ve içeriği geri yükleme */
+function VersionsCard({ report, editable }: { report: any; editable: boolean }) {
+  const [open, setOpen] = useState(false);
+  const restore = useAction((version: number) => api(`/reports/${report.id}/restore`, { body: { version } }), { success: 'Sürüm geri yüklendi' });
+  const latestV = report.versions[0]?.version;
+  return (
+    <Card title={<button type="button" className="link-btn" onClick={() => setOpen(!open)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, font: 'inherit', fontWeight: 700, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit' }}>{open ? <ChevronDown size={16} /> : <ChevronRight size={16} />} Sürümler ({report.versions.length})</button>} pad={false}>
+      {open && report.versions.map((v: any) => (
+        <div key={v.id} className="list-item">
+          <div className="grow">
+            <div className="row"><b>v{v.version}</b><StatusBadge map={REPORT_TONE} labels={REPORT_STATUS_LABELS} value={v.status} /></div>
+            <div className="xs muted">{fmtDateTime(v.createdAt)} · {report.users?.[v.createdById] ?? ''}</div>
+            {v.approvedAt && <div className="xs" style={{ color: 'var(--ok)' }}>Onay: {report.users?.[v.approvedById]} · {fmtDate(v.approvedAt)}</div>}
+            {v.changeNote && <div className="xs muted">{v.changeNote}</div>}
+          </div>
+          <div className="row" style={{ gap: 4 }}>
+            {editable && v.version !== latestV && report.type !== 'INSPECTION' && <button className="btn btn-sm" title="Bu sürümün içeriğini geri yükle" onClick={() => confirm(`v${v.version} içeriği geri yüklensin mi? Güncel taslak bu içerikle değişir (onaylı sürüm varsa yeni sürüm açılır).`) && restore.mutate(v.version)}><RotateCcw size={14} /></button>}
+            <a className="btn btn-sm" href={authedUrl(`/reports/${report.id}/pdf?version=${v.version}`)} target="_blank" rel="noreferrer">PDF</a>
+          </div>
+        </div>
+      ))}
+      {!open && <div className="list-item xs muted">Son sürüm: v{latestV} · eski sürümleri görüntülemek ve geri yüklemek için açın</div>}
+    </Card>
+  );
+}
+
+/** Belgeyi yeni şablon olarak kaydet (ad zorunlu) */
+function SaveTemplateModal({ id, title, onClose }: { id: string; title: string; onClose: () => void }) {
+  const [f, setF] = useState({ name: '', description: '', isDefault: false });
+  const save = useAction(() => api(`/reports/${id}/save-template`, { body: f }), { success: 'Şablon kaydedildi', onSuccess: onClose });
+  return (
+    <Modal open onClose={onClose} title="Yeni şablon olarak kaydet" footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={f.name.trim().length < 2 || save.isPending} onClick={() => save.mutate(undefined)}><Copy /> Kaydet</button></>}>
+      <div className="stack">
+        <div className="notice"><FileText /><div>Belgenin şu anki içeriği şablon olur. Tekne adı ve marina otomatik olarak <code>{'{TEKNE}'}</code> / <code>{'{MARINA}'}</code> yer tutucusuna çevrilir; yeni belgede seçilen teknenin bilgileriyle dolar.</div></div>
+        <Field label="Şablon adı"><input className="input" autoFocus value={f.name} placeholder={`Ör. ${title.split(' — ')[0]} — standart`} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Açıklama (isteğe bağlı)"><input className="input" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Ör. Gövde + teak birleşik protokol, 6 ay garanti" /></Field>
+        <label className="checkbox"><input type="checkbox" checked={f.isDefault} onChange={(e) => setF({ ...f, isDefault: e.target.checked })} /> Bu başlığın varsayılan şablonu olsun (yeni belgeler bununla başlar)</label>
+      </div>
+    </Modal>
   );
 }

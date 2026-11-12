@@ -1,0 +1,59 @@
+/* ───────── Yönetim raporları panosu ───────── */
+.an-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.an-kpi { --c: var(--marine); --cbg: #e7f1fb; display: flex; gap: 12px; align-items: flex-start; background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+.an-kpi::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.an-kpi-ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--cbg); color: var(--c); flex: none; }
+.an-kpi-ic svg { width: 20px; height: 20px; }
+.an-kpi-label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.an-kpi-value { display: block; font-size: 24px; font-weight: 800; color: var(--navy); letter-spacing: -0.02em; line-height: 1.2; }
+.an-kpi-sub { display: block; font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+.an-kpi.blue { --c: #1767ad; --cbg: #e7f1fb; }
+.an-kpi.green { --c: #16a34a; --cbg: #e8f7ee; }
+.an-kpi.teal { --c: #0e9488; --cbg: #e3f6f3; }
+.an-kpi.violet { --c: #6d4bd8; --cbg: #f0ecfd; }
+.an-kpi.amber { --c: #e07b00; --cbg: #fff3e2; }
+.an-kpi.red { --c: #dc2626; --cbg: #fdecec; }
+
+.an-grid { display: grid; gap: 16px; margin-bottom: 16px; }
+.an-2-1 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.an-1-1 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .an-2-1, .an-1-1 { grid-template-columns: minmax(0, 1fr); } }
+.an-chart { height: 280px; }
+.an-chart.sm { height: 240px; }
+
+.an-donut { position: relative; height: 200px; }
+.an-donut-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+.an-donut-center b { font-size: 26px; font-weight: 800; color: var(--navy); line-height: 1; }
+.an-donut-center span { font-size: 11.5px; color: var(--muted); }
+.an-legend { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.an-legend button { display: flex; align-items: center; gap: 8px; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text); padding: 5px 6px; border-radius: 8px; cursor: pointer; text-align: left; }
+.an-legend button:hover { background: #f4f8fd; }
+.an-legend i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.an-legend b { margin-left: auto; font-family: var(--mono, inherit); }
+
+.an-gauges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.an-gauge { text-align: center; }
+.an-gauge svg { width: 100%; max-width: 170px; }
+.an-gauge span { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-2); margin-top: -4px; }
+
+.an-table { display: flex; flex-direction: column; }
+.an-tr { display: grid; grid-template-columns: 1.2fr 1.6fr 0.7fr; gap: 12px; align-items: center; padding: 10px 18px; border-bottom: 1px solid #eef2f6; font-size: 13.5px; }
+.an-tr:last-child { border-bottom: 0; }
+.an-th { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; background: #fafcfe; }
+.an-vessel { grid-template-columns: 26px 1.2fr 1.6fr; cursor: pointer; }
+.an-vessel:hover { background: #f7fbff; }
+.an-rank { width: 24px; height: 24px; border-radius: 8px; display: grid; place-items: center; background: var(--sky); color: var(--marine); font-weight: 800; font-size: 12px; }
+.an-barcell { display: flex; align-items: center; gap: 8px; }
+.an-barcell i { height: 8px; border-radius: 99px; background: linear-gradient(90deg, #1767ad, #5b9bd8); min-width: 4px; }
+.an-barcell b { font-size: 13px; color: var(--navy); }
+
+.an-fin { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 16px; align-items: start; }
+.an-fin-kpis { display: flex; flex-direction: column; gap: 10px; }
+.an-fin-kpis .an-kpi { box-shadow: none; }
+@media (max-width: 1100px) { .an-fin { grid-template-columns: 1fr; } }
+
+@media print {
+  .sidebar, .topbar, .admin-tabs, .page-head .actions { display: none !important; }
+  .main { margin-left: 0 !important; }
+  .analytics .card, .an-kpi { break-inside: avoid; box-shadow: none; }
+}

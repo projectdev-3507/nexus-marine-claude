@@ -41,6 +41,7 @@ inspectionsRouter.get(
           vessel: { select: { id: true, name: true, marina: true } },
           inspector: { select: { id: true, name: true } },
           items: { select: { result: true, sectionCode: true } },
+          report: { select: { status: true } },
         },
       }),
       prisma.inspection.count({ where }),
@@ -238,6 +239,7 @@ inspectionsRouter.put(
         location: zOptStr,
         pier: zOptStr,
         inspectorTitle: zOptStr,
+        inspectorName: zOptStr,
         operationalStatus: z.enum(OPERATIONAL_STATUSES).nullable().optional(),
         pumpOutDone: z.boolean().optional(),
         findings: z
@@ -263,6 +265,7 @@ inspectionsRouter.put(
           location: body.location,
           pier: body.pier,
           inspectorTitle: body.inspectorTitle,
+          inspectorName: body.inspectorName,
           operationalStatus: body.operationalStatus,
           pumpOutDone: body.pumpOutDone,
           findings: body.findings,

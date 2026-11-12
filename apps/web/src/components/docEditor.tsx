@@ -153,6 +153,67 @@ export function SectionList({ sections, onChange, disabled, numberedItems, addLa
   );
 }
 
+export interface FreeSection { title: string; intro?: string; items: string[] }
+
+/** Serbest başlıklar: istenen kadar başlık eklenir, her başlığın giriş metni ve maddeleri olur */
+export function FreeSections({ sections, onChange, disabled, addLabel = 'Yeni başlık ekle' }: { sections: FreeSection[]; onChange: (v: FreeSection[]) => void; disabled?: boolean; addLabel?: string }) {
+  const list = sections ?? [];
+  const set = (i: number, patch: Partial<FreeSection>) => onChange(list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="doc-sections">
+      {list.map((s, i) => (
+        <div key={i} className="doc-sec free">
+          <div className="doc-sec-head">
+            <AutoText className="doc-h3" value={s.title} placeholder="Başlık" disabled={disabled} onChange={(v) => set(i, { title: v })} />
+            {!disabled && (
+              <span className="row-tools">
+                <button type="button" title="Yukarı taşı" onClick={() => onChange(move(list, i, -1))}><ArrowUp /></button>
+                <button type="button" title="Aşağı taşı" onClick={() => onChange(move(list, i, 1))}><ArrowDown /></button>
+                <button type="button" title="Başlığı sil" className="del" onClick={() => confirm(`"${s.title || 'Başlık'}" bölümü silinsin mi?`) && onChange(list.filter((_, j) => j !== i))}><Trash2 /></button>
+              </span>
+            )}
+          </div>
+          {(s.intro || !disabled) && <AutoText className="doc-strong" value={s.intro ?? ''} placeholder="Giriş metni (isteğe bağlı)" disabled={disabled} onChange={(v) => set(i, { intro: v })} />}
+          <TextList items={s.items ?? []} disabled={disabled} addLabel="Madde ekle" onChange={(v) => set(i, { items: v })} />
+        </div>
+      ))}
+      <AddButton disabled={disabled} label={addLabel} onClick={() => onChange([...list, { title: 'YENİ BAŞLIK', intro: '', items: [''] }])} />
+    </div>
+  );
+}
+
+export interface ECol { key: string; label: string; type?: 'text' | 'date'; width?: number }
+
+/** Düzenlenebilir tablo (satır ekle / sil / taşı) */
+export function EditTable({ cols, rows, onChange, disabled, addLabel = 'Satır ekle' }: { cols: ECol[]; rows: any[]; onChange: (v: any[]) => void; disabled?: boolean; addLabel?: string }) {
+  const list = rows ?? [];
+  const setCell = (i: number, k: string, v: any) => onChange(list.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const show = (c: ECol, v: any) => (c.type === 'date' ? (v ? new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }) : '—') : v ?? '');
+  return (
+    <div className="doc-table-wrap">
+      <table className="doc-table">
+        <thead><tr>{cols.map((c) => <th key={c.key} style={c.width ? { width: c.width } : undefined}>{c.label}</th>)}{!disabled && <th style={{ width: 70 }} />}</tr></thead>
+        <tbody>
+          {list.map((r, i) => (
+            <tr key={i}>
+              {cols.map((c) => (
+                <td key={c.key} style={{ padding: disabled ? '6px 8px' : undefined }}>
+                  {disabled ? show(c, r[c.key]) || '—' : c.type === 'date'
+                    ? <input type="date" className="doc-input" value={r[c.key] ? String(r[c.key]).slice(0, 10) : ''} onChange={(e) => setCell(i, c.key, e.target.value ? new Date(e.target.value + 'T09:00:00').toISOString() : null)} />
+                    : <AutoText value={String(r[c.key] ?? '')} onChange={(v) => setCell(i, c.key, v)} />}
+                </td>
+              ))}
+              {!disabled && <td><RowTools onUp={() => onChange(move(list, i, -1))} onDown={() => onChange(move(list, i, 1))} onDelete={() => onChange(list.filter((_, j) => j !== i))} /></td>}
+            </tr>
+          ))}
+          {!list.length && <tr><td colSpan={cols.length + (disabled ? 0 : 1)} className="muted" style={{ padding: '6px 8px' }}>Kayıt yok</td></tr>}
+        </tbody>
+      </table>
+      <AddButton disabled={disabled} label={addLabel} onClick={() => onChange([...list, Object.fromEntries(cols.map((c) => [c.key, c.type === 'date' ? null : '']))])} />
+    </div>
+  );
+}
+
 /** İmza kutuları */
 export function SignBoxes({ boxes }: { boxes: Array<{ head: string; children: ReactNode }> }) {
   return (

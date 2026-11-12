@@ -38,7 +38,7 @@ export const PHASE_TONE: Record<string, Tone> = { NOT_STARTED: 'neutral', IN_PRO
 export const CR_TONE: Record<string, Tone> = { PENDING: 'warn', APPROVED: 'ok', REJECTED: 'danger' };
 export const CUSTOMER_TONE: Record<string, Tone> = { ACTIVE: 'ok', PENDING: 'warn', INACTIVE: 'neutral' };
 
-export const INSP_STATUS_LABELS: Record<string, string> = { DRAFT: 'Taslak', SUBMITTED: 'Onay Bekliyor', APPROVED: 'Onaylandı' };
+export const INSP_STATUS_LABELS: Record<string, string> = { DRAFT: 'Taslak', SUBMITTED: 'Onay Bekliyor', APPROVED: 'Admin onayladı' };
 export const FAULT_STATUS_LABELS: Record<string, string> = { OPEN: 'Açık', IN_PROGRESS: 'İşlemde', RESOLVED: 'Giderildi' };
 export const PROJECT_STATUS_LABELS: Record<string, string> = { PLANNING: 'Planlama', ACTIVE: 'Aktif', ON_HOLD: 'Beklemede', DELIVERED: 'Teslim Edildi', CANCELLED: 'İptal' };
 export const PHASE_STATUS_LABELS: Record<string, string> = { NOT_STARTED: 'Başlamadı', IN_PROGRESS: 'Devam Ediyor', DONE: 'Tamamlandı' };
@@ -46,6 +46,7 @@ export const CR_STATUS_LABELS: Record<string, string> = { PENDING: 'Karar Bekliy
 export const CUSTOMER_STATUS_LABELS: Record<string, string> = { ACTIVE: 'Aktif', PENDING: 'Beklemede', INACTIVE: 'Pasif' };
 export const DOC_CATEGORY_LABELS: Record<string, string> = { CONTRACT: 'Sözleşme', CERTIFICATE: 'Sertifika', INSURANCE: 'Sigorta', TECHNICAL: 'Teknik Belge', WARRANTY: 'Garanti', INVOICE: 'Fatura', OTHER: 'Diğer' };
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(Object.entries(MAINTENANCE_CATEGORIES).map(([k, v]) => [k, v.label]));
+/** Bakım başlıkları dinamiktir (lib/maintCats.ts API'den gelen başlıklarla günceller) */
 export const CATEGORY_SHORT: Record<string, string> = { MECHANICAL: 'Makine', ELECTRICAL: 'Elektrik', HAUL_OUT: 'Kara Bakımı', COSMETIC: 'Kozmetik' };
 export const TECH_STATUS: Record<string, [string, Tone]> = { ON_TASK: ['Görevde', 'warn'], ASSIGNED: ['Atanmış iş var', 'info'], AVAILABLE: ['Müsait', 'ok'] };
 
