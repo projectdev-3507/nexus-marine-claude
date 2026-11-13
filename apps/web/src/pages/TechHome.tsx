@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Square, Camera, MapPin, Clock, ChevronRight, CheckCircle2, Hourglass, ClipboardCheck, Ship } from 'lucide-react';
+import { Play, Square, Camera, MapPin, Clock, ChevronRight, CheckCircle2, Hourglass, ClipboardCheck, Ship, Wrench } from 'lucide-react';
 import { useApi, useAction } from '../lib/hooks';
 import { useAuth } from '../lib/auth';
 import { api, uploadFiles } from '../lib/api';
@@ -15,6 +15,9 @@ export default function TechHome() {
   const { user } = useAuth();
   const nav = useNavigate();
   const { data } = useApi<any>('/work-orders', { group: 'open', pageSize: 100 }, { refetchInterval: 60_000 });
+  // Bugüne kadar (gecikmişler dahil) ve yarın yapılacak bakımlar
+  const until = new Date(); until.setDate(until.getDate() + 1); until.setHours(23, 59, 59, 0);
+  const maint = useApi<any>('/maintenance', { status: 'PLANNED,OVERDUE,IN_PROGRESS', to: until.toISOString(), pageSize: 50, sort: 'plannedDate', order: 'asc' }, { refetchInterval: 60_000 }).data?.items ?? [];
   const [confirm, setConfirm] = useState<{ wo: any; to: 'IN_PROGRESS' | 'TECHNICAL_REVIEW' } | null>(null);
   const [note, setNote] = useState('');
   const move = useAction(
@@ -104,6 +107,25 @@ export default function TechHome() {
         </section>
       )}
 
+      {maint.length > 0 && (
+        <section className="job-section">
+          <h3><Wrench size={16} /> Bakımlarım <em>{maint.length}</em></h3>
+          <div className="stack" style={{ gap: 8 }}>
+            {maint.map((m: any) => {
+              const steps: any[] = Array.isArray(m.checklist) ? m.checklist : [];
+              return (
+                <div key={m.id} className="job-mini" style={{ cursor: 'pointer' }} onClick={() => nav(`/maintenance/${m.id}`)}>
+                  {m.status === 'OVERDUE' ? <Hourglass size={16} color="var(--danger)" /> : <Wrench size={16} />}
+                  <span>{m.title}</span>
+                  <small>{m.vessel?.name} · {new Date(m.plannedDate).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}{steps.length ? ` · ${steps.filter((x) => x.done).length}/${steps.length}` : ''}{m.status === 'OVERDUE' ? ' · gecikmiş' : ''}</small>
+                  <ChevronRight size={16} />
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <Section title="Bugün" list={todays} icon={<ClipboardCheck size={16} />} />
       <Section title="Yarın" list={tomorrow} icon={<MapPin size={16} />} />
       <Section title="Sonraki işler" list={later} icon={<Hourglass size={16} />} />
@@ -121,7 +143,7 @@ export default function TechHome() {
         </section>
       )}
 
-      {!items.length && <div className="card"><Empty title="Şu an sana atanmış iş yok" text="Yeni bir iş atandığında burada ve bildirimlerde göreceksin." icon={<CheckCircle2 />} /></div>}
+      {!items.length && !maint.length && <div className="card"><Empty title="Şu an sana atanmış iş yok" text="Yeni bir iş atandığında burada ve bildirimlerde göreceksin." icon={<CheckCircle2 />} /></div>}
 
       <Modal
         open={!!confirm}

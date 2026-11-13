@@ -9,14 +9,16 @@ import { Avatar, Badge, Card, Empty, Field, KV, Loading, Modal, PageHeader, Stat
 import { AttachmentStrip, Gallery, MEDIA_ACCEPT, Uploader } from '../components/media';
 import { WorkOrderForm } from './WorkOrders';
 import { useMaterialOptions, usePeople } from '../lib/lookups';
-import { fmtDateTime, fmtMoney, fmtNum, relTime, toInputDateTime } from '../lib/format';
+import { fmtDate, fmtDateTime, fmtMoney, fmtNum, relTime, toInputDateTime } from '../lib/format';
 import { CATEGORY_LABELS, PRIORITY_LABELS, PRIORITY_TONE, WO_TONE, FAULT_STATUS_LABELS, FAULT_TONE } from '../lib/labels';
+import { HelperPicker, teamText } from '../components/planning';
 
 const FLOW: WorkOrderStatus[] = ['REQUESTED', 'EVALUATION', 'PLANNED', 'ASSIGNED', 'IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED'];
 
 const ACTION_META: Partial<Record<WorkOrderStatus, { label: string; icon: any; cls: string }>> = {
   EVALUATION: { label: 'Değerlendirmeye al', icon: Clock, cls: 'btn' },
   PLANNED: { label: 'Planlandı', icon: Clock, cls: 'btn' },
+  ASSIGNED: { label: 'Teknisyene ilet', icon: UserPlus, cls: 'btn btn-primary' },
   IN_PROGRESS: { label: 'İşe başla', icon: Play, cls: 'btn btn-primary' },
   TECHNICAL_REVIEW: { label: 'İşi bitir · kontrole gönder', icon: Square, cls: 'btn btn-primary' },
   COMPLETED: { label: 'Teknik kontrolü onayla', icon: CheckCircle2, cls: 'btn btn-success' },
@@ -55,9 +57,10 @@ export default function WorkOrderDetail() {
   const delMat = useAction((usageId: string) => api(`/work-orders/${id}/materials/${usageId}`, { method: 'DELETE' }), { success: 'Malzeme kaldırıldı' });
 
   if (!w) return <Loading />;
-  const mine = w.technician?.id === user?.id;
+  const mine = w.technician?.id === user?.id || (w.helperIds ?? []).includes(user?.id);
   const allowed = (WORK_ORDER_TRANSITIONS[w.status as WorkOrderStatus] ?? []).filter((to) => {
-    if (manager) return to !== 'ASSIGNED';
+    // ASSIGNED normalde atama ile olur; teknisyen zaten atanmışsa "Teknisyene ilet" olarak sunulur
+    if (manager) return to !== 'ASSIGNED' || !!w.technician;
     return mine && can('workorders.execute') && TECHNICIAN_TRANSITIONS.some(([f, t]) => f === w.status && t === to);
   });
   const checklist: Array<{ label: string; done: boolean }> = w.checklist ?? [];
@@ -83,13 +86,15 @@ export default function WorkOrderDetail() {
 
       {staff && (() => {
         // Sıradaki adım: ne yapılması gerektiğini tek cümleyle söyler, ana eylemi büyük butonla sunar
-        const primaryOrder: WorkOrderStatus[] = ['IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED', 'PLANNED', 'EVALUATION'];
-        const primary = primaryOrder.find((s) => allowed.includes(s));
-        const secondary = allowed.filter((s) => s !== primary && ACTION_META[s]);
+        const primaryOrder: WorkOrderStatus[] = ['IN_PROGRESS', 'TECHNICAL_REVIEW', 'COMPLETED', 'PUBLISHED', 'CLOSED', 'ASSIGNED', 'PLANNED', 'EVALUATION'];
+        // Teknisyen yoksa "Teknisyene ilet" gösterilmez (önce atama gerekir); ASSIGNED'den geri "Planlandı" da gösterilmez
+        const acts = allowed.filter((s) => (s !== 'ASSIGNED' || !!w.technician) && !(s === 'PLANNED' && w.status === 'ASSIGNED'));
+        const primary = primaryOrder.find((s) => acts.includes(s));
+        const secondary = acts.filter((s) => s !== primary && ACTION_META[s]);
         const needsTech = manager && !w.technician && ['REQUESTED', 'EVALUATION', 'PLANNED'].includes(w.status);
         const step = Math.max(0, flowIdx);
         const tech = w.technician?.name ?? 'Teknisyen';
-        const msg = nextStepText(w.status, { manager, mine, tech });
+        const msg = nextStepText(w.status, { manager, mine, tech, hasTech: !!w.technician });
         const off = ['ON_HOLD', 'REVISION_REQUIRED', 'CANCELLED'].includes(w.status);
         return (
           <div className={`next-step mb-2${off ? ' warn' : ''}${w.status === 'CLOSED' || w.status === 'PUBLISHED' ? ' done' : ''}`}>
@@ -118,7 +123,7 @@ export default function WorkOrderDetail() {
               ['Marina / Bağlama', [w.vessel.marina, w.vessel.berth].filter(Boolean).join(' · ')],
               ['Kategori', w.category ? CATEGORY_LABELS[w.category] : null],
               ['Talep eden', w.requestedBy?.name],
-              ['Atanan teknisyen', w.technician?.name],
+              [w.helpers?.length ? 'Teknisyenler' : 'Atanan teknisyen', teamText(w) || null],
               ['Planlanan', w.plannedStart ? `${fmtDateTime(w.plannedStart)}${w.plannedEnd ? ' → ' + fmtDateTime(w.plannedEnd) : ''}` : null],
               ['Planlanan süre', w.plannedHours != null ? `${w.plannedHours} saat` : undefined],
               ['Başlangıç / bitiş', w.startedAt ? `${fmtDateTime(w.startedAt)}${w.finishedAt ? ' → ' + fmtDateTime(w.finishedAt) : ''}` : null],
@@ -179,15 +184,19 @@ export default function WorkOrderDetail() {
           {w.faults?.length > 0 && (
             <Card title="İlişkili arızalar" pad={false}>
               {w.faults.map((f: any) => (
-                <div key={f.id} className="list-item"><div className="grow strong">{f.title}</div><StatusBadge map={FAULT_TONE} labels={FAULT_STATUS_LABELS} value={f.status} /></div>
+                <Link key={f.id} to={staff ? `/faults/${f.id}` : '/maintenance'} className="list-item" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div className="grow"><div className="strong">{f.title}</div>{f.source === 'CUSTOMER' && <div className="xs muted">Müşteri bildirimi · {fmtDateTime(f.createdAt)}</div>}{f.description && <div className="xs muted truncate">{f.description}</div>}</div>
+                  <StatusBadge map={FAULT_TONE} labels={FAULT_STATUS_LABELS} value={f.status} />
+                </Link>
               ))}
             </Card>
           )}
-          {(w.project || w.maintenancePlan || w.reports?.length > 0) && (
+          {(w.project || w.maintenancePlan || w.parentPlan || w.reports?.length > 0) && (
             <Card title="Bağlantılar">
               <div className="stack small" style={{ gap: 8 }}>
                 {w.project && <div>Proje: <Link to={`/projects/${w.project.id}`}>{w.project.name}</Link></div>}
-                {w.maintenancePlan && <div>Bakım planı: <Link to={`/maintenance?id=${w.maintenancePlan.id}`}>{w.maintenancePlan.title}</Link></div>}
+                {w.parentPlan && <div>Bağlı bakım: <Link to={`/maintenance/${w.parentPlan.id}`}>{w.parentPlan.title} · {fmtDate(w.parentPlan.plannedDate)}</Link></div>}
+                {w.maintenancePlan && <div>Bakım planı: <Link to={`/maintenance/${w.maintenancePlan.id}`}>{w.maintenancePlan.title}</Link></div>}
                 {w.reports?.map((r: any) => <div key={r.id}>Rapor: <Link to={`/reports/${r.id}`}>{r.number}</Link></div>)}
               </div>
             </Card>
@@ -269,7 +278,7 @@ export default function WorkOrderDetail() {
         </div>
       </div>
 
-      {edit && <WorkOrderForm initial={{ ...w, vesselId: w.vessel.id, technicianId: w.technician?.id ?? '', plannedStart: toInputDateTime(w.plannedStart), plannedEnd: toInputDateTime(w.plannedEnd), checklist: w.checklist ?? [] }} onClose={() => setEdit(false)} />}
+      {edit && <WorkOrderForm initial={{ ...w, vesselId: w.vessel.id, technicianId: w.technician?.id ?? '', helperIds: w.helperIds ?? [], plannedStart: toInputDateTime(w.plannedStart), plannedEnd: toInputDateTime(w.plannedEnd), checklist: w.checklist ?? [] }} onClose={() => setEdit(false)} />}
       {assign && <AssignModal wo={w} onClose={() => setAssign(false)} />}
       {transition && <TransitionModal wo={w} to={transition} onClose={() => setTransition(null)} />}
     </div>
@@ -277,11 +286,11 @@ export default function WorkOrderDetail() {
 }
 
 /** Duruma ve kullanıcıya göre "şimdi ne yapılmalı" açıklaması */
-function nextStepText(status: string, { manager, mine, tech }: { manager: boolean; mine: boolean; tech: string }) {
+function nextStepText(status: string, { manager, mine, tech, hasTech }: { manager: boolean; mine: boolean; tech: string; hasTech?: boolean }) {
   switch (status) {
-    case 'REQUESTED': return manager ? 'Yeni talep geldi. İnceleyip teknisyen atayın veya planlayın.' : 'Talep operasyon ekibinin incelemesini bekliyor.';
-    case 'EVALUATION': return manager ? 'Talep değerlendiriliyor. Teknisyen atayarak işi planlayın.' : 'Talep değerlendiriliyor.';
-    case 'PLANNED': return manager ? 'İş planlandı. Bir teknisyen atayın.' : 'İş planlandı, teknisyen ataması bekleniyor.';
+    case 'REQUESTED': return manager ? (hasTech ? `Yeni talep geldi. ${tech} atandı; "Planlandı" ile işi teknisyene iletin.` : 'Yeni talep geldi. İnceleyip teknisyen atayın veya planlayın.') : 'Talep operasyon ekibinin incelemesini bekliyor.';
+    case 'EVALUATION': return manager ? (hasTech ? `Talep değerlendiriliyor. ${tech} atandı; "Planlandı" ile işi teknisyene iletin.` : 'Talep değerlendiriliyor. Teknisyen atayarak işi planlayın.') : 'Talep değerlendiriliyor.';
+    case 'PLANNED': return hasTech ? (manager ? `İş planlandı, ${tech} atandı. "Teknisyene ilet" ile işi başlatın.` : `İş planlandı, ${tech} atandı.`) : (manager ? 'İş planlandı. Bir teknisyen atayın.' : 'İş planlandı, teknisyen ataması bekleniyor.');
     case 'ASSIGNED': return mine ? 'Bu iş sana atandı. Tekneye vardığında "İşe başla"ya bas.' : `${tech} işe başlamayı bekliyor.`;
     case 'IN_PROGRESS': return mine ? 'Çalışma sürüyor. Fotoğrafları ekle; bitince "İşi bitir · kontrole gönder"e bas.' : `${tech} şu anda bu iş üzerinde çalışıyor.`;
     case 'REVISION_REQUIRED': return mine ? 'Yönetici revizyon istedi. Notları okuyup işe tekrar başla.' : `${tech} revizyonu yapacak.`;
@@ -298,10 +307,10 @@ function nextStepText(status: string, { manager, mine, tech }: { manager: boolea
 function AssignModal({ wo, onClose }: { wo: any; onClose: () => void }) {
   const techs = usePeople('TECHNICIAN');
   const status = useApi<any[]>('/technicians').data ?? [];
-  const [f, setF] = useState({ technicianId: wo.technician?.id ?? '', plannedStart: toInputDateTime(wo.plannedStart), plannedEnd: toInputDateTime(wo.plannedEnd) });
-  const save = useAction(() => api(`/work-orders/${wo.id}/assign`, { body: { ...f, plannedStart: f.plannedStart || null, plannedEnd: f.plannedEnd || null } }), { success: 'Teknisyen atandı ve bilgilendirildi', onSuccess: onClose });
+  const [f, setF] = useState({ technicianId: wo.technician?.id ?? '', helperIds: (wo.helperIds ?? []) as string[], plannedStart: toInputDateTime(wo.plannedStart), plannedEnd: toInputDateTime(wo.plannedEnd) });
+  const save = useAction(() => api(`/work-orders/${wo.id}/assign`, { body: { ...f, helperIds: f.helperIds.filter((h) => h !== f.technicianId), plannedStart: f.plannedStart || null, plannedEnd: f.plannedEnd || null } }), { success: 'Teknisyenler atandı ve bilgilendirildi', onSuccess: onClose });
   return (
-    <Modal open onClose={onClose} title="Teknisyen ata" footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.technicianId} onClick={() => save.mutate(undefined)}>Ata</button></>}>
+    <Modal open onClose={onClose} title="Teknisyen ata (sorumlu)" footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.technicianId} onClick={() => save.mutate(undefined)}>Ata</button></>}>
       <div className="stack">
         <div className="stack" style={{ gap: 6 }}>
           {techs.map((t) => {
@@ -316,6 +325,7 @@ function AssignModal({ wo, onClose }: { wo: any; onClose: () => void }) {
             );
           })}
         </div>
+        <Field label="Ek teknisyenler" hint="Sorumlu teknisyene ek olarak bu işte çalışacaklar"><HelperPicker techs={techs} value={f.helperIds} exclude={f.technicianId} onChange={(helperIds) => setF({ ...f, helperIds })} /></Field>
         <div className="form-grid">
           <Field label="Planlanan başlangıç"><input className="input" type="datetime-local" value={f.plannedStart} onChange={(e) => setF({ ...f, plannedStart: e.target.value })} /></Field>
           <Field label="Planlanan bitiş"><input className="input" type="datetime-local" value={f.plannedEnd} onChange={(e) => setF({ ...f, plannedEnd: e.target.value })} /></Field>

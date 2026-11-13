@@ -20,6 +20,8 @@ const Technicians = lazy(() => import('./pages/Technicians'));
 const Inspections = lazy(() => import('./pages/Inspections'));
 const InspectionDetail = lazy(() => import('./pages/InspectionDetail'));
 const Faults = lazy(() => import('./pages/Faults'));
+const MaintenanceDetail = lazy(() => import('./pages/MaintenanceDetail'));
+const FaultDetail = lazy(() => import('./pages/Faults').then((m) => ({ default: m.FaultDetail })));
 const Reports = lazy(() => import('./pages/Reports'));
 const ReportDetail = lazy(() => import('./pages/ReportDetail'));
 const ProjectsList = lazy(() => import('./pages/Projects').then((m) => ({ default: m.ProjectsList })));
@@ -69,6 +71,7 @@ export default function App() {
             <Route path="vessels" element={<S><Guard perm={['vessels.view']}><Vessels /></Guard></S>} />
             <Route path="vessels/:id" element={<S><Guard perm={['vessels.view']}><VesselDetail /></Guard></S>} />
             <Route path="maintenance" element={<S><Guard perm={['maintenance.view']}><Maintenance /></Guard></S>} />
+            <Route path="maintenance/:id" element={<S><Guard perm={['maintenance.view']}><MaintenanceDetail /></Guard></S>} />
             <Route path="work-orders" element={<S><Guard perm={['workorders.view']}><WorkOrders /></Guard></S>} />
             <Route path="work-orders/:id" element={<S><Guard perm={['workorders.view']}><WorkOrderDetail /></Guard></S>} />
             <Route path="calendar" element={<S><Guard perm={['calendar.view']}><CalendarPage /></Guard></S>} />
@@ -76,6 +79,7 @@ export default function App() {
             <Route path="inspections" element={<S><Guard perm={['inspections.view']}><Inspections /></Guard></S>} />
             <Route path="inspections/:id" element={<S><Guard perm={['inspections.view']}><InspectionDetail /></Guard></S>} />
             <Route path="faults" element={<S><Faults /></S>} />
+            <Route path="faults/:id" element={<S><FaultDetail /></S>} />
             <Route path="reports" element={<S><Guard perm={['reports.manage']}><Reports key="reports" group="reports" /></Guard></S>} />
             <Route path="collections" element={<S><Guard perm={['finance.view']}><Collections /></Guard></S>} />
             <Route path="contracts" element={<S><Guard perm={['reports.manage']}><Reports key="contracts" group="contracts" /></Guard></S>} />
@@ -105,6 +109,7 @@ export default function App() {
           <Route element={<PortalLayout />}>
             <Route index element={<S><PortalHome /></S>} />
             <Route path="maintenance" element={<S><PortalMaintenance /></S>} />
+            <Route path="maintenance/:id" element={<S><MaintenanceDetail /></S>} />
             <Route path="request" element={<S><PortalRequest /></S>} />
             <Route path="documents" element={<S><PortalOffers /></S>} />
             <Route path="calendar" element={<S><PortalCalendar /></S>} />
@@ -113,6 +118,8 @@ export default function App() {
             <Route path="vessels/:id" element={<S><VesselDetail /></S>} />
             <Route path="work-orders" element={<S><WorkOrders /></S>} />
             <Route path="work-orders/:id" element={<S><WorkOrderDetail /></S>} />
+            <Route path="faults" element={<Navigate to="/maintenance" replace />} />
+            <Route path="faults/:id" element={<S><FaultDetail /></S>} />
             <Route path="reports" element={<Navigate to="/documents" replace />} />
             <Route path="reports/:id" element={<S><ReportDetail /></S>} />
             <Route path="projects/:id" element={<S><ProjectDetail /></S>} />

@@ -21,7 +21,9 @@ export function Uploader({ entityType, entityId, onDone, compact, tagOptions, ac
   const [over, setOver] = useState(false);
   const [tag, setTag] = useState('GENERAL');
   const { manager } = useAuth();
-  const [visible, setVisible] = useState(false);
+  // Seçim hatırlanır (sayfadan çıkınca sıfırlanmaz)
+  const [visible, setVisibleState] = useState(() => { try { return localStorage.getItem('nexus.uploadVisible') === '1'; } catch { return false; } });
+  const setVisible = (v: boolean) => { setVisibleState(v); try { localStorage.setItem('nexus.uploadVisible', v ? '1' : '0'); } catch { /* yok */ } };
   const up = useAction((files: FileList) => uploadFiles(entityType, entityId, files, { tag: tagOptions ? tag : undefined, customerVisible: manager ? visible : undefined }), { success: 'Dosya yüklendi', onSuccess: onDone });
   const handle = (files?: FileList | null) => files?.length && up.mutate(files);
   return (
@@ -37,7 +39,7 @@ export function Uploader({ entityType, entityId, onDone, compact, tagOptions, ac
           )}
           {manager && (
             <label className="checkbox small">
-              <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Müşteriye görünür (onaylı)
+              <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Yüklenenler müşteriye görünür (onaylı)
             </label>
           )}
         </div>
@@ -144,15 +146,15 @@ export function Gallery({ items, editable }: { items: Attachment[]; editable?: b
               <div className="ph-tag row" style={{ gap: 4 }}>
                 {a.tag === 'BEFORE' && <Badge tone="navy" plain>ÖNCE</Badge>}
                 {a.tag === 'AFTER' && <Badge tone="ok" plain>SONRA</Badge>}
-                {manager && !a.customerVisible && <Badge tone="warn" plain>Dahili</Badge>}
+                {manager && !(editable) && !a.customerVisible && <Badge tone="warn" plain>Dahili</Badge>}
               </div>
+              {manager && editable && (
+                <button type="button" className={`ph-vis${a.customerVisible ? ' on' : ''}`} disabled={toggle.isPending} title={a.customerVisible ? 'Müşteriden gizlemek için tıklayın' : 'Müşteriye yayınlamak için tıklayın'} onClick={() => toggle.mutate(a)}>
+                  {a.customerVisible ? <><Eye /> Müşteri görür</> : <><EyeOff /> Dahili</>}
+                </button>
+              )}
               {editable && (manager || a.uploadedById === user?.id) && (
                 <div className="ph-actions">
-                  {manager && (
-                    <button className="btn btn-sm btn-icon" title={a.customerVisible ? 'Müşteriden gizle' : 'Müşteriye yayınla'} onClick={() => toggle.mutate(a)}>
-                      {a.customerVisible ? <Eye /> : <EyeOff />}
-                    </button>
-                  )}
                   <button className="btn btn-sm btn-icon" title="Sil" onClick={() => confirm('Dosya silinsin mi?') && del.mutate(a)}>
                     <Trash2 />
                   </button>
@@ -169,7 +171,9 @@ export function Gallery({ items, editable }: { items: Attachment[]; editable?: b
             <div key={a.id} className="row" style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px' }}>
               <FileText size={18} color="var(--marine)" />
               <span className="grow truncate strong" style={{ flex: 1 }}>{a.fileName}</span>
-              {manager && !a.customerVisible && <Badge tone="warn" plain>Dahili</Badge>}
+              {manager && editable ? (
+                <button type="button" className={`ph-vis inline${a.customerVisible ? ' on' : ''}`} disabled={toggle.isPending} onClick={() => toggle.mutate(a)}>{a.customerVisible ? <><Eye /> Müşteri görür</> : <><EyeOff /> Dahili</>}</button>
+              ) : manager && !a.customerVisible && <Badge tone="warn" plain>Dahili</Badge>}
               <a className="btn btn-sm" href={fileUrl(a.id, true)}>
                 <Download />
               </a>

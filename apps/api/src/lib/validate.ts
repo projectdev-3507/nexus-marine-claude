@@ -3,11 +3,13 @@ import { z } from 'zod';
 export const zId = z.string().min(1);
 export const zDate = z.coerce.date();
 export const zOptDate = z
-  .union([z.coerce.date(), z.literal('').transform(() => null), z.null()])
+  // null önce denenir: z.coerce.date() null'u 01.01.1970'e çevirirdi
+  .union([z.null(), z.literal('').transform(() => null), z.coerce.date()])
   .optional();
 export const zOptStr = z.string().trim().optional().nullable();
 export const zOptNum = z
-  .union([z.coerce.number(), z.literal('').transform(() => null), z.null()])
+  // null önce denenir: z.coerce.number() null'u 0'a çevirirdi
+  .union([z.null(), z.literal('').transform(() => null), z.coerce.number()])
   .optional();
 
 export const paginationQuery = z.object({

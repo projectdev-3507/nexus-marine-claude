@@ -10,6 +10,7 @@ import { Card, DataTable, Field, Modal, PageHeader, Pager, SearchInput, StatusBa
 import { usePeople, useVesselOptions } from '../lib/lookups';
 import { fmtDate, fmtTime } from '../lib/format';
 import { CATEGORY_LABELS, CATEGORY_SHORT, PRIORITY_LABELS, PRIORITY_TONE, WORK_ORDER_STATUS_LABELS, WO_TONE } from '../lib/labels';
+import { HelperPicker, teamText } from '../components/planning';
 
 const GROUPS: Array<[string, string]> = [['', 'Tümü'], ['open', 'Açık'], ['review', 'Kontrol bekleyen'], ['done', 'Tamamlanan'], ['week', 'Bu hafta']];
 
@@ -40,7 +41,7 @@ export default function WorkOrders() {
     { key: 'number', label: 'İş emri', sortable: true, render: (w) => <div><div className="mono strong" style={{ color: 'var(--navy)' }}>{w.number}</div><div className="cell-sub">{fmtDate(w.createdAt)}</div></div> },
     { key: 'title', label: 'Açıklama', render: (w) => <div style={{ maxWidth: 340 }}><div className="cell-title truncate">{w.title}</div><div className="cell-sub">{w.vessel.name} · {w.vessel.marina}</div></div> },
     { key: 'category', label: 'Kategori', render: (w) => (w.category ? CATEGORY_SHORT[w.category] : '—') },
-    { key: 'tech', label: 'Teknisyen', render: (w) => w.technician?.name ?? <span className="muted">Atanmadı</span> },
+    { key: 'tech', label: 'Teknisyen', render: (w) => teamText(w) || <span className="muted">Atanmadı</span> },
     { key: 'plannedStart', label: 'Planlanan', sortable: true, render: (w) => (w.plannedStart ? <div>{fmtDate(w.plannedStart)}<div className="cell-sub">{fmtTime(w.plannedStart)}</div></div> : '—') },
     { key: 'priority', label: 'Öncelik', sortable: true, render: (w) => <StatusBadge map={PRIORITY_TONE} labels={PRIORITY_LABELS} value={w.priority} /> },
     { key: 'status', label: 'Durum', sortable: true, render: (w) => <StatusBadge map={WO_TONE} labels={WORK_ORDER_STATUS_LABELS} value={w.status} /> },
@@ -94,7 +95,7 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
   const vessels = useVesselOptions();
   const techs = usePeople('TECHNICIAN');
   const [f, setF] = useState<any>(() => ({
-    vesselId: vesselId ?? '', title: '', description: '', category: '', priority: 'MEDIUM', technicianId: '', plannedStart: '', plannedEnd: '', plannedHours: '',
+    vesselId: vesselId ?? '', title: '', description: '', category: '', priority: 'MEDIUM', technicianId: '', helperIds: [] as string[], plannedStart: '', plannedEnd: '', plannedHours: '',
     checklist: [] as Array<{ label: string; done: boolean }>,
     ...initial,
   }));
@@ -102,13 +103,20 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
   const save = useAction(
     () => {
-      const body = { ...f, category: f.category || null, technicianId: f.technicianId || null, plannedHours: f.plannedHours || null, plannedStart: f.plannedStart || null, plannedEnd: f.plannedEnd || null };
+      const body = { ...f, parentPlanId: f.parentPlanId || null, helperIds: (f.helperIds ?? []).filter((h: string) => h !== f.technicianId), category: f.category || null, technicianId: f.technicianId || null, plannedHours: f.plannedHours || null, plannedStart: f.plannedStart || null, plannedEnd: f.plannedEnd || null };
       return initial?.id ? api(`/work-orders/${initial.id}`, { method: 'PUT', body }) : api('/work-orders', { body });
     },
     { success: initial?.id ? 'İş emri güncellendi' : 'Kayıt oluşturuldu', onSuccess: (r) => { onClose(); onCreated?.(r); } },
   );
   useMaintCats();
-  const suggestions = maintItems(f.category);
+  // Teknenin açık bakımları: her seri için en yakın tarih (ör. Silver Care · 18 Kas)
+  const plans = useApi<any>(manager && f.vesselId ? '/maintenance' : null, { vesselId: f.vesselId, status: 'PLANNED,OVERDUE,IN_PROGRESS', pageSize: 200, sort: 'plannedDate', order: 'asc' }).data?.items ?? [];
+  const planOptions: any[] = [];
+  const seen = new Set<string>();
+  for (const p of plans) { const k = p.seriesId ?? p.id; if (!seen.has(k) || p.id === f.parentPlanId) { seen.add(k); planOptions.push(p); } }
+  if (initial?.parentPlan && !planOptions.some((p) => p.id === initial.parentPlan.id)) planOptions.unshift(initial.parentPlan);
+  const parentCat = planOptions.find((p) => p.id === f.parentPlanId)?.category;
+  const suggestions = maintItems(parentCat ?? f.category);
   return (
     <Modal open onClose={onClose} size="lg" title={initial?.id ? 'İş emrini düzenle' : manager ? 'Yeni iş emri' : 'Yeni servis / bakım talebi'} footer={<><button className="btn" onClick={onClose}>Vazgeç</button><button className="btn btn-primary" disabled={!f.vesselId || f.title.length < 2 || save.isPending} onClick={() => save.mutate(undefined)}>Kaydet</button></>}>
       <div className="form-grid">
@@ -118,12 +126,21 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
             {vessels.map((v) => <option key={v.id} value={v.id}>{v.name} {v.marina ? `· ${v.marina}` : ''}</option>)}
           </select>
         </Field>
-        <Field label="Bakım kategorisi">
-          <select className="select" value={f.category ?? ''} onChange={set('category')}>
-            <option value="">— Seçin —</option>
-            {activeMaintCats().map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-          </select>
-        </Field>
+        {manager ? (
+          <Field label="Bağlı bakım (opsiyonel)" hint="Ek iş, teknenin bakım paketine bağlanabilir">
+            <select className="select" value={f.parentPlanId ?? ''} onChange={set('parentPlanId')} disabled={!f.vesselId}>
+              <option value="">— Bağımsız iş emri —</option>
+              {planOptions.map((p) => <option key={p.id} value={p.id}>{p.title} · {fmtDate(p.plannedDate)}</option>)}
+            </select>
+          </Field>
+        ) : (
+          <Field label="Bakım kategorisi">
+            <select className="select" value={f.category ?? ''} onChange={set('category')}>
+              <option value="">— Seçin —</option>
+              {activeMaintCats().map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+          </Field>
+        )}
         <Field label="İş başlığı *" full>
           <input className="input" list="wo-suggest" value={f.title} onChange={set('title')} placeholder="Örn. Yağ ve filtre değişimi" />
           <datalist id="wo-suggest">{suggestions.map((s) => <option key={s} value={s} />)}</datalist>
@@ -140,6 +157,7 @@ export function WorkOrderForm({ vesselId, onClose, onCreated, initial }: { vesse
                 {techs.map((t) => <option key={t.id} value={t.id}>{t.name}{t.title ? ` · ${t.title}` : ''}</option>)}
               </select>
             </Field>
+            <Field label="Ek teknisyenler" hint="Birden fazla teknisyen atanabilir"><HelperPicker techs={techs} value={f.helperIds ?? []} exclude={f.technicianId} onChange={(helperIds) => setF({ ...f, helperIds })} /></Field>
             <Field label="Planlanan başlangıç"><input className="input" type="datetime-local" value={f.plannedStart ?? ''} onChange={set('plannedStart')} /></Field>
             <Field label="Planlanan bitiş"><input className="input" type="datetime-local" value={f.plannedEnd ?? ''} onChange={set('plannedEnd')} /></Field>
             <Field label="Planlanan süre (saat)"><input className="input" type="number" step="0.5" value={f.plannedHours ?? ''} onChange={set('plannedHours')} /></Field>

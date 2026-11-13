@@ -103,7 +103,7 @@ export default function CalendarPage() {
   }, [vessel, vesselTabs]);
 
   const eventsOn = (d: Date) => data.filter((e) => day0(e.start) <= day0(d) && day0(e.end ?? e.start) >= day0(d));
-  const open = (e: Ev) => (e.kind === 'WORK_ORDER' ? setQuick(e.id) : e.kind === 'MAINTENANCE' ? setMaint({ id: e.id }) : nav(`/projects/${e.id}`));
+  const open = (e: Ev) => (e.kind === 'WORK_ORDER' ? setQuick(e.id) : e.kind === 'MAINTENANCE' ? nav(`/maintenance/${e.id}`) : nav(`/projects/${e.id}`));
   const move = (n: number) => setCursor((c) => (view === 'week' ? addDays(c, 7 * n) : new Date(c.getFullYear(), c.getMonth() + n, 1)));
   const fmtM = (d: Date) => d.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' });
   const title =

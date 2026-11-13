@@ -110,6 +110,8 @@
 .pcal-day.sel .dots i { box-shadow: 0 0 0 1.5px var(--navy), 0 0 0 2.5px rgba(255, 255, 255, 0.7); }
 
 .pcal-agenda { min-height: 200px; }
+.home-agenda .pcal-agenda-head { padding: 14px 16px 10px; }
+.home-agenda .pcal-list { max-height: 360px; }
 .pcal-agenda-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; padding: 18px 20px 14px; border-bottom: 1px solid #edf2f7; }
 .pcal-agenda-head span { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
 .pcal-agenda-head h2 { font-size: 18px; font-weight: 800; text-transform: capitalize; letter-spacing: -0.02em; }
@@ -118,7 +120,10 @@
 .pcal-list li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 14px; cursor: pointer; border: 1px solid transparent; background: linear-gradient(90deg, var(--cbg), #fff 70%); position: relative; transition: border-color 0.15s, transform 0.15s; }
 .pcal-list li::before { content: ''; position: absolute; left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--c); }
 .pcal-list li:hover { border-color: var(--border); transform: translateX(2px); }
-.pcal-list li.done { opacity: 0.6; }
+.pcal-list li.done { --c: #17914f; --cbg: #e3f6ea; }
+.pcal-list li.done .pcal-when { background: #e3f6ea; border-color: #bfe8cf; }
+.k-done { --c: #17914f; --cbg: #e3f6ea; }
+.pcal-day .dots i.done { background: #17914f; }
 .pcal-date { width: 44px; flex: none; text-align: center; line-height: 1.05; }
 .pcal-date b { display: block; font-size: 20px; font-weight: 800; color: var(--navy); }
 .pcal-date span { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--muted); }

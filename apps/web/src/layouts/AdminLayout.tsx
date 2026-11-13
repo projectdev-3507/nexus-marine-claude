@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Ship, Wrench, ClipboardList, CalendarDays, HardHat, ClipboardCheck, Wallet, FileText, Hammer, Package, Users,
-  FileSignature, Bell, BarChart3, ShieldCheck, Settings, Menu, Search, LogOut, ChevronDown, UserCircle2, Plus, Sun,
-} from 'lucide-react';
+  FileSignature, Bell, BarChart3, ShieldCheck, Settings, Menu, Search, LogOut, ChevronDown, UserCircle2, Plus, Sun, AlertTriangle } from 'lucide-react';
 import type { Permission } from '@nexus/shared';
 import { useAuth } from '../lib/auth';
 import { useApi } from '../lib/hooks';
@@ -28,6 +27,7 @@ export const NAV: NavItem[] = [
   { to: '/customers', label: 'Müşteriler', icon: Users, perm: ['customers.view'] },
   { to: '/work-orders', label: 'İş Emirleri', icon: ClipboardList, perm: ['workorders.view'], section: 'Operasyon' },
   { to: '/maintenance', label: 'Bakım Planları', icon: Wrench, perm: ['maintenance.view'] },
+  { to: '/faults', label: 'Arızalar', icon: AlertTriangle, perm: ['workorders.view'] },
   { to: '/projects', label: 'Projeler', icon: Hammer, perm: ['projects.manage'] },
   { to: '/technicians', label: 'Teknisyenler', icon: HardHat, perm: ['technicians.view'] },
   { to: '/inventory', label: 'Stok', icon: Package, perm: ['inventory.view'] },

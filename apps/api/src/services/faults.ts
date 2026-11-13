@@ -12,7 +12,7 @@ export async function notifyFault(fault: Fault, vesselName: string, excludeUserI
       type: 'CRITICAL_FAULT',
       title: `${fault.severity === 'CRITICAL' ? 'KRİTİK ' : ''}Arıza: ${vesselName}`,
       body: fault.title,
-      link: `/faults?id=${fault.id}`,
+      link: `/faults/${fault.id}`,
       entityType: 'Fault',
       entityId: fault.id,
       dedupeKey: `fault-${fault.id}`,
@@ -23,13 +23,15 @@ export async function notifyFault(fault: Fault, vesselName: string, excludeUserI
 }
 
 /** Arızadan iş emri açar ve arızayı iş emrine bağlar. */
-export async function createWorkOrderFromFault(user: AuthUser, faultId: string, opts: { technicianId?: string; priority?: Priority } = {}) {
+export async function createWorkOrderFromFault(user: AuthUser, faultId: string, opts: { technicianId?: string; helperIds?: string[]; priority?: Priority } = {}) {
   const fault = await prisma.fault.findUniqueOrThrow({ where: { id: faultId }, include: { inspectionItem: { include: { inspection: true } } } });
   if (fault.workOrderId) throw badRequest('Bu arıza için zaten iş emri açılmış');
+  const reporter = fault.source === 'CUSTOMER' && fault.reportedById ? await prisma.user.findUnique({ where: { id: fault.reportedById }, select: { name: true } }) : null;
   return prisma.$transaction(async (tx) => {
     const number = await nextNumber('WO', tx);
     const status = opts.technicianId ? 'ASSIGNED' : 'REQUESTED';
     const desc = [
+      reporter ? `Müşteri talebi (${reporter.name}): ${fault.title}` : null,
       fault.description,
       fault.inspectionItem ? `Kaynak: Denetim ${fault.inspectionItem.inspection.number} · ${fault.inspectionItem.itemCode} ${fault.inspectionItem.label}` : null,
     ]
@@ -43,7 +45,8 @@ export async function createWorkOrderFromFault(user: AuthUser, faultId: string, 
         description: desc || undefined,
         priority: opts.priority ?? fault.severity,
         technicianId: opts.technicianId,
-        requestedById: user.id,
+        helperIds: (opts.helperIds ?? []).filter((h) => h !== opts.technicianId),
+        requestedById: fault.source === 'CUSTOMER' && fault.reportedById ? fault.reportedById : user.id,
         status,
         checklist: [{ label: 'Arıza tespiti doğrulandı', done: false }, { label: 'Onarım yapıldı', done: false }, { label: 'Test edildi', done: false }],
       },

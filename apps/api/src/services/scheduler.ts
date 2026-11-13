@@ -3,6 +3,7 @@ import { config } from '../config';
 import { managerIds, notify } from './notify';
 import { getSettings } from '../routes/settings';
 import { autoWeeklyReports } from './weekly';
+import { extendAllSeries } from './maintSeries';
 
 /**
  * Periyodik görevler:
@@ -30,7 +31,7 @@ export async function runScheduledJobs(now = new Date()) {
       type: 'OVERDUE',
       title: `Gecikmiş bakım: ${m.vessel.name}`,
       body: m.title,
-      link: `/maintenance?id=${m.id}`,
+      link: `/maintenance/${m.id}`,
       entityType: 'MaintenancePlan',
       entityId: m.id,
       dedupeKey: `maint-overdue-${m.id}`,
@@ -47,7 +48,7 @@ export async function runScheduledJobs(now = new Date()) {
       type: 'MAINTENANCE_UPCOMING',
       title: `Yaklaşan bakım: ${m.vessel.name}`,
       body: `${m.title} · ${m.plannedDate.toLocaleDateString('tr-TR')}`,
-      link: `/maintenance?id=${m.id}`,
+      link: `/maintenance/${m.id}`,
       entityType: 'MaintenancePlan',
       entityId: m.id,
       dedupeKey: `maint-upcoming-${m.id}`,
@@ -66,7 +67,7 @@ export async function runScheduledJobs(now = new Date()) {
         type: 'MAINTENANCE_UPCOMING',
         title: `Motor saati bakımı: ${m.vessel.name}`,
         body: `${m.title} · ${m.engine.position} ${m.engine.hours} / ${m.dueEngineHours} saat${remaining <= 0 ? ' (aşıldı)' : ''}`,
-        link: `/maintenance?id=${m.id}`,
+        link: `/maintenance/${m.id}`,
         entityType: 'MaintenancePlan',
         entityId: m.id,
         dedupeKey: `maint-hours-${m.id}-${remaining <= 0 ? 'over' : 'near'}`,
@@ -90,6 +91,8 @@ export async function runScheduledJobs(now = new Date()) {
       dedupeKey: `wo-overdue-${w.id}`,
     });
   }
+  // Periyodik bakım serileri (haftalık / aylık): ileriye dönük planları oluştur
+  (result as any).seriesPlans = await extendAllSeries();
   // Pazartesi: geçen haftanın bakım ve servis raporları (taslak)
   (result as any).weeklyReports = await autoWeeklyReports(now);
   return result;

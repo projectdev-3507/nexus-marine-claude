@@ -60,3 +60,20 @@ export {
   INSPECTION_RESULT_LABELS,
   ROLE_LABELS,
 };
+
+/** Müşteri arıza durumu: iş emri açıldıysa onun ilerlemesine göre (iş emri müşteriye gösterilmez) */
+export function faultClientStatus(f: { status: string; workOrder?: { status: string } | null; progress?: { status: string } | null }): [string, Tone] {
+  if (f.status === 'RESOLVED') return ['Giderildi', 'ok'];
+  const w = f.progress?.status ?? f.workOrder?.status;
+  if (!w) return ['Talebiniz alındı', 'warn'];
+  if (['REQUESTED', 'EVALUATION'].includes(w)) return ['İnceleniyor', 'warn'];
+  if (['PLANNED', 'ASSIGNED'].includes(w)) return ['Planlandı', 'info'];
+  if (['IN_PROGRESS', 'REVISION_REQUIRED'].includes(w)) return ['İşlemde', 'info'];
+  if (w === 'ON_HOLD') return ['Beklemede', 'warn'];
+  if (['TECHNICAL_REVIEW', 'COMPLETED'].includes(w)) return ['Kontrol ediliyor', 'info'];
+  if (['PUBLISHED', 'CLOSED'].includes(w)) return ['Giderildi', 'ok'];
+  if (w === 'CANCELLED') return ['İptal edildi', 'neutral'];
+  return ['İşlemde', 'info'];
+}
+/** Son hareket zamanı (arıza açılışı, iş emri güncellemesi, giderilme) */
+export const faultActivity = (f: any) => Math.max(+new Date(f.createdAt), f.resolvedAt ? +new Date(f.resolvedAt) : 0, f.workOrder?.updatedAt ? +new Date(f.workOrder.updatedAt) : 0);

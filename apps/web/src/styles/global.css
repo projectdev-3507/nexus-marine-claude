@@ -318,6 +318,11 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
 .photo .ph-tag { position: absolute; left: 6px; top: 6px; }
 .photo .ph-actions { position: absolute; right: 6px; top: 6px; display: flex; gap: 4px; }
+.ph-vis { position: absolute; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 99px; padding: 3px 9px; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; background: #fff4e0; color: #9a5b00; box-shadow: 0 1px 3px rgba(0,0,0,.18); z-index: 2; }
+.ph-vis.on { background: #e3f6ea; color: #17733f; }
+.ph-vis svg { width: 13px; height: 13px; }
+.ph-vis.inline { position: static; box-shadow: none; }
+.ph-vis:disabled { opacity: .6; cursor: wait; }
 .photo .ph-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 8px 6px; font-size: 11px; color: #fff; background: linear-gradient(transparent, rgba(7,24,46,.75)); }
 .dropzone { border: 1.5px dashed var(--border-2); border-radius: 12px; padding: 16px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s, background .15s; }
 .dropzone:hover, .dropzone.over { border-color: var(--marine); background: var(--sky); color: var(--marine); }
@@ -425,11 +430,24 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .login-art p { color: #a9c0da; max-width: 440px; margin-top: 14px; font-size: 15px; }
 .login-form { display: grid; place-items: center; padding: 32px 20px; background: #fff; }
 .login-form form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 16px; }
-.demo-accounts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.demo-accounts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+.demo-accounts button { min-width: 0; }
+.demo-accounts span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .demo-accounts button { text-align: left; border: 1px solid var(--border); background: #fafcfe; border-radius: 9px; padding: 8px 10px; cursor: pointer; font-size: 12px; }
 .demo-accounts button:hover { border-color: var(--marine); background: var(--sky); }
 .demo-accounts b { display: block; color: var(--navy); font-size: 12.5px; }
-@media (max-width: 900px) { .login { grid-template-columns: 1fr; } .login-art { padding: 28px 22px; min-height: 260px; } .login-art h2 { font-size: 24px; } }
+@media (max-width: 900px) {
+  .login { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100dvh; }
+  .login-form form { max-width: 100%; }
+  .login-art { padding: 20px 18px; min-height: 0; gap: 14px; }
+  .login-art .brand-text b { font-size: 18px !important; }
+  .login-art h2 { font-size: 19px; }
+  .login-tags, .login-yacht { display: none !important; }
+  .login-form { place-items: start center; padding: 22px 18px 28px; }
+  .login-form h1 { font-size: 22px; }
+}
+/* iOS: 16px altı yazı boyutunda alana dokununca sayfa otomatik yakınlaşır */
+@media (max-width: 900px) { input, select, textarea, .input, .select, .textarea, .input.sm, .select.sm { font-size: 16px !important; } }
 
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
@@ -502,3 +520,30 @@ table.table { width: 100%; border-collapse: separate; border-spacing: 0; }
 .tech-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .tech-tile { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: #fafcfe; min-width: 0; }
 .tech-tile .grow { flex: 1; min-width: 0; }
+
+/* Periyodik bakım seçici ve çoklu teknisyen */
+.repeat-picker { display: flex; flex-direction: column; gap: 8px; }
+.repeat-picker .rp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.weekday-chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.weekday-chips button { min-width: 42px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: #fff; font-weight: 600; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+.weekday-chips button.on { background: var(--marine); border-color: var(--marine); color: #fff; }
+.helper-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 36px; }
+.helper-picker .select { width: auto; min-width: 150px; }
+.helper-picker .chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 99px; background: var(--neutral-bg); font-size: 12.5px; font-weight: 600; color: var(--navy); }
+.helper-picker .chip button { border: 0; background: none; padding: 2px; cursor: pointer; color: var(--muted); display: inline-flex; border-radius: 50%; }
+.helper-picker .chip button:hover { color: var(--danger); background: #fff; }
+.photo-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.photo-picks .pp { position: relative; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; background: var(--neutral-bg); display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+.photo-picks .pp img { width: 100%; height: 100%; object-fit: cover; }
+.photo-picks .pp button { position: absolute; top: 2px; right: 2px; border: 0; border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; background: rgba(11,35,66,.7); color: #fff; cursor: pointer; padding: 0; }
+
+/* Müşteri arıza durumu adımları */
+.fault-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0; }
+.fault-steps li { position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 13.5px; color: var(--muted); }
+.fault-steps li i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); background: #fff; flex: none; position: relative; z-index: 1; }
+.fault-steps li:not(:last-child)::after { content: ''; position: absolute; left: 5px; top: 22px; bottom: -8px; width: 2px; background: var(--border); }
+.fault-steps li.done { color: var(--text); }
+.fault-steps li.done i { background: var(--ok); border-color: var(--ok); }
+.fault-steps li.done::after { background: var(--ok) !important; }
+.fault-steps li.cur { color: var(--navy); font-weight: 700; }
+.fault-steps li.cur i { background: var(--marine); border-color: var(--marine); box-shadow: 0 0 0 4px rgba(23,103,173,.15); }

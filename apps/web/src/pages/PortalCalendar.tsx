@@ -32,8 +32,57 @@ function when(e: Ev) {
   return day0(e.end ?? e.start) >= day0(new Date()) ? 'Devam ediyor' : `${-n} gün önce`;
 }
 
-export default function PortalCalendar() {
+const linkOf = (e: Ev) => (e.kind === 'WORK_ORDER' ? `/work-orders/${e.id}` : e.kind === 'PROJECT_PHASE' ? `/projects/${e.id}` : `/maintenance/${e.id}`);
+
+/** Ajanda satırları (takvim sayfası + ana sayfa) */
+function AgendaList({ list }: { list: Ev[] }) {
   const nav = useNavigate();
+  return (
+    <ul className="pcal-list">
+      {list.map((e) => {
+        const s = new Date(e.start);
+        const multi = e.end && !sameDay(new Date(e.end), s);
+        return (
+          <li key={`${e.kind}-${e.id}-${e.phase ?? ''}-${e.start}`} className={`${KIND[e.kind].cls}${isDone(e) ? ' done' : ''}`} onClick={() => nav(linkOf(e))}>
+            <div className="pcal-date"><b>{s.getDate()}</b><span>{s.toLocaleDateString('tr-TR', { month: 'short' })}</span></div>
+            <div className="pcal-body">
+              <div className="pcal-kind">{KIND[e.kind].icon}{KIND[e.kind].label}{e.vessel && <em>· {e.vessel.name}</em>}</div>
+              <b>{title(e)}</b>
+              <small>{multi ? `${fmtDate(e.start)} – ${fmtDate(e.end!)}` : fmtDate(e.start)} · {statusText(e)}</small>
+            </div>
+            <span className="pcal-when">{when(e)}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Ana sayfa: bu ayın programı (seçili tekne) */
+export function MonthAgenda({ vesselId }: { vesselId?: string }) {
+  const nav = useNavigate();
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), 1);
+  const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const all = useApi<Ev[]>('/calendar', { from: from.toISOString(), to: to.toISOString() }).data;
+  const list = (all ?? []).filter((e) => !vesselId || e.vessel?.id === vesselId).sort((a, b) => +new Date(a.start) - +new Date(b.start));
+  return (
+    <section className="card pcal-agenda home-agenda">
+      <div className="pcal-agenda-head">
+        <div>
+          <span>Bu ayın programı</span>
+          <h2>{now.toLocaleDateString('tr-TR', { month: 'long' })}</h2>
+        </div>
+        <button className="pcal-clear" onClick={() => nav('/calendar')}>Takvim <ChevronRight size={14} /></button>
+      </div>
+      {!all ? <div className="pcal-empty">Yükleniyor…</div> : list.length === 0 ? (
+        <div className="pcal-empty"><CalendarCheck2 /><b>Bu ay planlı bir işlem yok</b></div>
+      ) : <AgendaList list={list} />}
+    </section>
+  );
+}
+
+export default function PortalCalendar() {
   const [cursor, setCursor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [sel, setSel] = useState<Date | null>(null);
   const [vessel, setVessel] = useState('');
@@ -53,8 +102,7 @@ export default function PortalCalendar() {
 
   const move = (n: number) => { setSel(null); setCursor((c) => new Date(c.getFullYear(), c.getMonth() + n, 1)); };
   const goToday = () => { const d = new Date(); setCursor(new Date(d.getFullYear(), d.getMonth(), 1)); setSel(day0(d)); };
-  const open = (e: Ev) => (e.kind === 'WORK_ORDER' ? nav(`/work-orders/${e.id}`) : e.kind === 'PROJECT_PHASE' ? nav(`/projects/${e.id}`) : nav('/maintenance'));
-
+  
   return (
     <div>
       <PageHeader title="Takvim" sub="Teknenizin bakım, servis ve proje programı tek bakışta" />
@@ -76,18 +124,19 @@ export default function PortalCalendar() {
           </div>
           <div className="pcal-legend">
             {counts.map(([k, n]) => <span key={k} className={KIND[k].cls}><i />{KIND[k].label} <b>{n}</b></span>)}
+            <span className="k-done"><i />Tamamlandı <b>{monthEvents.filter(isDone).length}</b></span>
           </div>
           <div className="pcal-wd">{WD.map((d) => <span key={d}>{d}</span>)}</div>
           <div className="pcal-grid">
             {days.map((d) => {
               const evs = events.filter((e) => covers(e, d));
-              const kinds = [...new Set(evs.map((e) => e.kind))];
+              const kinds = [...new Set(evs.map((e) => (isDone(e) ? 'DONE' : e.kind)))];
               const out = d.getMonth() !== cursor.getMonth();
               const cls = ['pcal-day', out && 'out', sameDay(d, today) && 'today', sel && sameDay(d, sel) && 'sel', evs.length && 'has'].filter(Boolean).join(' ');
               return (
                 <button key={+d} className={cls} onClick={() => setSel(sel && sameDay(d, sel) ? null : day0(d))} aria-label={`${fmtDate(d)} — ${evs.length} kayıt`}>
                   <span className="n">{d.getDate()}</span>
-                  <span className="dots">{kinds.map((k) => <i key={k} className={KIND[k].cls} />)}</span>
+                  <span className="dots">{kinds.map((k) => <i key={k} className={k === 'DONE' ? 'k-done done' : KIND[k as Kind].cls} />)}</span>
                 </button>
               );
             })}
@@ -105,23 +154,7 @@ export default function PortalCalendar() {
           {!all ? <div className="pcal-empty">Yükleniyor…</div> : list.length === 0 ? (
             <div className="pcal-empty"><CalendarCheck2 /><b>{sel ? 'Bu gün için planlı bir işlem yok' : 'Bu ay planlı bir işlem yok'}</b><span>Yeni bir ihtiyaç için Bakımlar sayfasından servis talebi oluşturabilirsiniz.</span></div>
           ) : (
-            <ul className="pcal-list">
-              {list.map((e) => {
-                const s = new Date(e.start);
-                const multi = e.end && !sameDay(new Date(e.end), s);
-                return (
-                  <li key={`${e.kind}-${e.id}-${e.phase ?? ''}-${e.start}`} className={`${KIND[e.kind].cls}${isDone(e) ? ' done' : ''}`} onClick={() => open(e)}>
-                    <div className="pcal-date"><b>{s.getDate()}</b><span>{s.toLocaleDateString('tr-TR', { month: 'short' })}</span></div>
-                    <div className="pcal-body">
-                      <div className="pcal-kind">{KIND[e.kind].icon}{KIND[e.kind].label}{e.vessel && <em>· {e.vessel.name}</em>}</div>
-                      <b>{title(e)}</b>
-                      <small>{multi ? `${fmtDate(e.start)} – ${fmtDate(e.end!)}` : fmtDate(e.start)} · {statusText(e)}</small>
-                    </div>
-                    <span className="pcal-when">{when(e)}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            <AgendaList list={list} />
           )}
         </section>
       </div>

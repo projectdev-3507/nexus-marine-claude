@@ -5,6 +5,9 @@ import type { AuthUser } from '../lib/auth';
 import { badRequest, forbidden } from '../lib/errors';
 import { managerIds, notify, vesselClientUserIds } from './notify';
 
+/** Sorumlu veya ek teknisyen mi */
+export const isAssigned = (wo: { technicianId: string | null; helperIds?: string[] }, userId: string) => wo.technicianId === userId || !!wo.helperIds?.includes(userId);
+
 /**
  * İş emri durum geçişi. Her geçiş kullanıcı/zaman/eski/yeni durum ile kayıt altına alınır,
  * ilgili kişilere bildirim gönderilir.
@@ -22,7 +25,7 @@ export async function transitionWorkOrder(
   }
   if (!user.isManager) {
     const allowed = TECHNICIAN_TRANSITIONS.some(([f, t]) => f === from && t === to);
-    if (!allowed || !user.permissions.has('workorders.execute') || wo.technicianId !== user.id) throw forbidden();
+    if (!allowed || !user.permissions.has('workorders.execute') || !isAssigned(wo, user.id)) throw forbidden();
   }
   if (to === 'ASSIGNED' && !wo.technicianId) throw badRequest('Önce teknisyen atanmalı');
   if (to === 'PUBLISHED' && !(opts.customerSummary ?? wo.customerSummary)) {
@@ -74,7 +77,7 @@ export async function transitionWorkOrder(
     }, user.id);
   }
   if (to === 'REVISION_REQUIRED' && wo.technicianId) {
-    await notify([wo.technicianId], {
+    await notify([wo.technicianId, ...wo.helperIds], {
       type: 'TASK_ASSIGNED',
       title: `Revizyon gerekli: ${wo.number}`,
       body: opts.note ?? wo.title,
@@ -84,11 +87,12 @@ export async function transitionWorkOrder(
     });
   }
   if (to === 'PUBLISHED') {
+    const fault = await prisma.fault.findFirst({ where: { workOrderId: wo.id }, select: { id: true } });
     await notify(await vesselClientUserIds(wo.vesselId), {
       type: 'SERVICE_COMPLETED',
-      title: 'Servis tamamlandı',
+      title: fault ? 'Arızanız giderildi' : 'Servis tamamlandı',
       body: `${wo.title} işlemi tamamlandı. Detayları inceleyebilirsiniz.`,
-      link,
+      link: fault ? `/faults/${fault.id}` : link,
       entityType: 'WorkOrder',
       entityId: wo.id,
       dedupeKey: `wo-published-${wo.id}`,
@@ -101,9 +105,11 @@ type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 export async function scheduleNextRecurrence(
   tx: Tx,
-  plan: { id: string; title: string; category: any; subType: string | null; vesselId: string; description: string | null; technicianId: string | null; priority: any; intervalDays: number | null; intervalEngineHours: number | null; engineId: string | null; estimatedHours: number | null; plannedMaterials: any },
+  plan: { id: string; title: string; category: any; subType: string | null; vesselId: string; description: string | null; technicianId: string | null; helperIds: string[]; priority: any; intervalDays: number | null; intervalEngineHours: number | null; engineId: string | null; estimatedHours: number | null; plannedMaterials: any; repeatWeekdays: number[]; repeatMonthDay: number | null; repeatUntil: Date | null; checklist?: any },
   from: Date,
 ) {
+  // Haftalık / aylık seriler zamanlayıcı tarafından önceden oluşturulur
+  if (plan.repeatWeekdays.length || plan.repeatMonthDay) return;
   if (!plan.intervalDays && !plan.intervalEngineHours) return;
   let dueEngineHours: number | undefined;
   if (plan.intervalEngineHours && plan.engineId) {
@@ -111,6 +117,8 @@ export async function scheduleNextRecurrence(
     if (engine) dueEngineHours = engine.hours + plan.intervalEngineHours;
   }
   const plannedDate = new Date(from.getTime() + (plan.intervalDays ?? 180) * 864e5);
+  // Bitiş tarihi geçtiyse periyodik bakım sona erer
+  if (plan.repeatUntil && plannedDate > plan.repeatUntil && !plan.intervalEngineHours) return;
   await tx.maintenancePlan.create({
     data: {
       title: plan.title,
@@ -119,8 +127,11 @@ export async function scheduleNextRecurrence(
       vesselId: plan.vesselId,
       description: plan.description,
       technicianId: plan.technicianId,
+      helperIds: plan.helperIds,
       priority: plan.priority,
       intervalDays: plan.intervalDays,
+      repeatUntil: plan.repeatUntil,
+      checklist: Array.isArray(plan.checklist) ? plan.checklist.map((x: any) => ({ label: x.label, done: false })) : undefined,
       intervalEngineHours: plan.intervalEngineHours,
       engineId: plan.engineId,
       estimatedHours: plan.estimatedHours,
@@ -134,7 +145,7 @@ export async function scheduleNextRecurrence(
 /** Müşteri tarafına iş emrinin güvenli görünümü — dahili notlar, maliyetler, yayınlanmamış fotoğraflar gizlenir */
 export function sanitizeWorkOrderForClient<T extends Record<string, any>>(wo: T) {
   const published = ['PUBLISHED', 'CLOSED'].includes(wo.status);
-  const { materials: _m, comments, checklist, plannedHours: _ph, actualHours, history, technician, ...rest } = wo;
+  const { materials: _m, comments, checklist, plannedHours: _ph, actualHours, history, technician, helperIds: _h, ...rest } = wo;
   return {
     ...rest,
     technician: technician ? { id: technician.id, name: technician.name } : null,

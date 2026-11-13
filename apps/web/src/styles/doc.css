@@ -242,3 +242,16 @@
 .maint-tabs .tab-add:hover { color: var(--marine); }
 .color-dot { width: 26px; height: 26px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px var(--border); cursor: pointer; padding: 0; }
 .color-dot.on { box-shadow: 0 0 0 2px var(--navy); }
+
+/* Bakım adımları (paket maddeleri) */
+.maint-steps { display: flex; flex-direction: column; gap: 2px; }
+.maint-step { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13.5px; }
+.maint-step:hover { background: var(--neutral-bg); }
+.maint-step.ro { cursor: default; }
+.maint-step.ro:hover { background: none; }
+.maint-step input { width: 18px; height: 18px; accent-color: var(--ok, #16a34a); flex: none; }
+.maint-step.done > span { color: var(--muted); text-decoration: line-through; text-decoration-color: rgba(0,0,0,.25); }
+.maint-step .ok-ic { color: var(--ok, #16a34a); flex: none; }
+.maint-step small { white-space: nowrap; }
+.notice.ok { background: #ecfdf3; border-color: #b7ebc9; color: #14532d; }
+.notice.ok svg { color: var(--ok, #16a34a); }

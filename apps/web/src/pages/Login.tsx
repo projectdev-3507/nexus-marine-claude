@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ShieldCheck, Smartphone, Ship } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Smartphone } from 'lucide-react';
 import { useAuth } from '../lib/auth';
 import { LogoMark, YachtArt } from '../components/brand';
 
@@ -13,6 +14,7 @@ const DEMO = [
 
 export default function Login() {
   const { login } = useAuth();
+  const nav = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
@@ -25,6 +27,8 @@ export default function Login() {
     setBusy(true);
     try {
       await login(creds?.[0] ?? email, creds?.[1] ?? password);
+      // Giriş yapınca her zaman ana sayfa açılır (en son açık kalan sayfa değil)
+      nav('/', { replace: true });
     } catch (x) {
       setErr((x as Error).message);
     } finally {
@@ -38,10 +42,7 @@ export default function Login() {
         <div className="row" style={{ gap: 16, position: "relative", zIndex: 1 }}><LogoMark size={92} full /><div className="brand-text"><b style={{ color: "#fff", fontSize: 22 }}>NEXUS</b><span>Marin ve Yatçılık Hizmetleri</span></div></div>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <h2>Teknik operasyonlarınız tek platformda.</h2>
-          <p>Bakım, servis, denetim, restorasyon ve müşteri süreçlerini web, iOS ve Android üzerinden gerçek zamanlı yönetin.</p>
-          <div className="row-wrap mt-3" style={{ gap: 18, color: '#b9cde4', fontSize: 13 }}>
-            <span className="row" style={{ gap: 6 }}><Ship size={16} /> Filo yönetimi</span>
-            <span className="row" style={{ gap: 6 }}><ShieldCheck size={16} /> Rol bazlı erişim</span>
+          <div className="row-wrap mt-3 login-tags" style={{ gap: 18, color: '#b9cde4', fontSize: 13 }}>
             <span className="row" style={{ gap: 6 }}><Smartphone size={16} /> Mobil uyumlu</span>
           </div>
         </div>

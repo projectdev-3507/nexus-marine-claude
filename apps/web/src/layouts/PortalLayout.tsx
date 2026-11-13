@@ -15,7 +15,7 @@ export default function PortalLayout() {
   const quotes = can('quotes.respond');
   const tabs = [
     { to: '/', label: 'Teknem', icon: Home, match: (p: string) => p === '/' },
-    { to: '/maintenance', label: 'Bakımlar', icon: Wrench, match: (p: string) => /^\/(maintenance|request|work-orders)/.test(p) },
+    { to: '/maintenance', label: 'İşlemler', icon: Wrench, match: (p: string) => /^\/(maintenance|request|work-orders|faults)/.test(p) },
     { to: '/calendar', label: 'Takvim', icon: CalendarDays, match: (p: string) => p.startsWith('/calendar') },
     quotes
       ? { to: '/quotes', label: 'Teklifler', icon: Receipt, match: (p: string) => /^\/(quotes|documents|reports)/.test(p) }

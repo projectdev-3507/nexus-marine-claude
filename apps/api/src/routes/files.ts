@@ -15,6 +15,8 @@ fs.mkdirSync(config.storageDir, { recursive: true });
 
 const ALLOWED = /^(image\/(jpeg|png|webp|heic|heif|gif)|video\/(mp4|quicktime|webm|3gpp|x-m4v|x-matroska)|application\/vnd\.ms-excel|application\/pdf|application\/vnd\.openxmlformats-officedocument\..+|application\/msword|text\/plain)$/;
 
+const EXT_MIME: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.heic': 'image/heic', '.heif': 'image/heif', '.gif': 'image/gif', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.3gp': 'video/3gpp', '.m4v': 'video/x-m4v', '.pdf': 'application/pdf' };
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => {
@@ -25,20 +27,26 @@ const upload = multer({
     filename: (_req, file, cb) => cb(null, crypto.randomUUID() + path.extname(file.originalname).toLowerCase().slice(0, 10)),
   }),
   limits: { fileSize: config.maxUploadMb * 1024 * 1024, files: 10 },
-  fileFilter: (_req, file, cb) => cb(null, ALLOWED.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED.test(file.mimetype)) return cb(null, true);
+    // Bazı telefon / tarayıcılar fotoğraf türünü boş veya "octet-stream" gönderir → uzantıdan tanı
+    const byExt = EXT_MIME[path.extname(file.originalname).toLowerCase()];
+    if (byExt && (!file.mimetype || file.mimetype === 'application/octet-stream')) { file.mimetype = byExt; return cb(null, true); }
+    cb(null, false);
+  },
 });
 
-export const ENTITY_TYPES = ['WORK_ORDER', 'INSPECTION_ITEM', 'VESSEL', 'PROJECT', 'PHASE', 'REPORT', 'DOCUMENT', 'FAULT', 'COMMENT'] as const;
+export const ENTITY_TYPES = ['WORK_ORDER', 'INSPECTION_ITEM', 'VESSEL', 'PROJECT', 'PHASE', 'REPORT', 'DOCUMENT', 'FAULT', 'COMMENT', 'MAINTENANCE'] as const;
 type EntityType = (typeof ENTITY_TYPES)[number];
 
 /** Varlık için tekne kimliğini sunucu tarafında çözer ve yükleme yetkisini doğrular. */
 async function resolveEntity(user: AuthUser, type: EntityType, id: string): Promise<string> {
   switch (type) {
     case 'WORK_ORDER': {
-      const wo = await prisma.workOrder.findUnique({ where: { id }, select: { vesselId: true, technicianId: true } });
+      const wo = await prisma.workOrder.findUnique({ where: { id }, select: { vesselId: true, technicianId: true, helperIds: true } });
       if (!wo) throw notFound();
       assertVesselAccess(user, wo.vesselId);
-      if (user.isStaff && !user.isManager && wo.technicianId !== user.id) throw forbidden();
+      if (user.isStaff && !user.isManager && wo.technicianId !== user.id && !wo.helperIds.includes(user.id)) throw forbidden();
       return wo.vesselId;
     }
     case 'INSPECTION_ITEM': {
@@ -83,6 +91,14 @@ async function resolveEntity(user: AuthUser, type: EntityType, id: string): Prom
       assertVesselAccess(user, c.workOrder.vesselId);
       if (c.userId !== user.id && !user.isManager) throw forbidden();
       return c.workOrder.vesselId;
+    }
+    case 'MAINTENANCE': {
+      // Bakım fotoğrafları: personel (yönetici veya teknisyen)
+      if (!user.isStaff) throw forbidden();
+      const m = await prisma.maintenancePlan.findUnique({ where: { id }, select: { vesselId: true } });
+      if (!m) throw notFound();
+      assertVesselAccess(user, m.vesselId);
+      return m.vesselId;
     }
     case 'FAULT': {
       const f = await prisma.fault.findUnique({ where: { id }, select: { vesselId: true } });

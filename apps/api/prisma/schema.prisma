@@ -299,6 +299,17 @@ model MaintenancePlan {
   technicalNotes String?
   /// Tarih bazlı tekrar (gün)
   intervalDays   Int?
+  /// Periyodik tekrar: haftanın günleri (0=Paz … 6=Cmt) veya ayın günü; aynı serideki planlar seriesId ile bağlıdır
+  repeatWeekdays Int[]               @default([])
+  repeatMonthDay Int?
+  /// Periyodik bakımın bitiş tarihi (bu tarihe kadar tekrarlanır)
+  repeatUntil    DateTime?
+  seriesId       String?
+  /// Ek teknisyenler (sorumlu teknisyen technicianId)
+  helperIds      String[]            @default([])
+  /// STAFF | CUSTOMER (müşteri portalından planlanan)
+  source         String              @default("STAFF")
+  requestedById  String?
   /// Motor saati bazlı tekrar
   engineId       String?
   engine         Engine?             @relation(fields: [engineId], references: [id])
@@ -307,13 +318,25 @@ model MaintenancePlan {
   /// Kara bakımı alanları
   haulOutDate    DateTime?
   launchDate     DateTime?
+  /// Eski kullanım: plandan dönüştürülen iş emri (yeni planlarda kullanılmaz)
   workOrderId    String?             @unique
-  workOrder      WorkOrder?          @relation(fields: [workOrderId], references: [id])
+  workOrder      WorkOrder?          @relation("PlanWorkOrder", fields: [workOrderId], references: [id])
+  /// Bakım adımları: [{ label, done, doneAt?, doneBy? }]
+  checklist      Json?
+  completedAt    DateTime?
+  completedById  String?
+  completedBy    String?
+  /// Müşteriye görünen tamamlama özeti
+  completionNote String?
+  /// Bakıma bağlı ek işler (iş emirleri)
+  extraWorkOrders WorkOrder[]        @relation("PlanExtras")
+  comments       MaintenanceComment[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
 
   @@index([vesselId, plannedDate])
   @@index([status])
+  @@index([seriesId])
 }
 
 model WorkOrder {
@@ -330,6 +353,8 @@ model WorkOrder {
   status        WorkOrderStatus @default(REQUESTED)
   technicianId  String?
   technician    User?           @relation("WOTechnician", fields: [technicianId], references: [id])
+  /// Ek teknisyenler (birden fazla teknisyen)
+  helperIds     String[]        @default([])
   plannedStart  DateTime?
   plannedEnd    DateTime?
   plannedHours  Float?
@@ -348,13 +373,17 @@ model WorkOrder {
   history         WorkOrderHistory[]
   comments        WorkOrderComment[]
   materials       MaterialUsage[]
-  maintenancePlan MaintenancePlan?
+  maintenancePlan MaintenancePlan? @relation("PlanWorkOrder")
+  /// Bağlı olduğu bakım (paket) — opsiyonel; ek iş olarak açılır
+  parentPlanId    String?
+  parentPlan      MaintenancePlan? @relation("PlanExtras", fields: [parentPlanId], references: [id], onDelete: SetNull)
   faults          Fault[]
   reports         Report[]
 
   @@index([vesselId])
   @@index([status])
   @@index([technicianId])
+  @@index([parentPlanId])
 }
 
 model WorkOrderHistory {
@@ -478,6 +507,7 @@ model Fault {
   reportedById     String?
   createdAt        DateTime    @default(now())
   resolvedAt       DateTime?
+  comments         FaultComment[]
 
   @@index([vesselId, status])
 }
@@ -801,4 +831,32 @@ model Setting {
 model Counter {
   key   String @id
   value Int    @default(0)
+}
+
+/// Bakım yorumları (iş emri yorumları gibi; dahili veya müşteriye açık)
+model MaintenanceComment {
+  id        String          @id @default(cuid())
+  planId    String
+  plan      MaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  userId    String?
+  userName  String
+  body      String
+  internal  Boolean         @default(false)
+  createdAt DateTime        @default(now())
+
+  @@index([planId])
+}
+
+/// Arıza bildirimi yorumları (iş emri açılmadan önce); iş emri açılınca yorumlar iş emrinin müşteri kanalına yazılır
+model FaultComment {
+  id        String   @id @default(cuid())
+  faultId   String
+  fault     Fault    @relation(fields: [faultId], references: [id], onDelete: Cascade)
+  userId    String?
+  userName  String
+  body      String
+  internal  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([faultId])
 }
